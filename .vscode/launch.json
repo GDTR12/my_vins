@@ -1,0 +1,34 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "ros2",
+        "request": "launch",
+        "type": "cppdbg",
+        "MIMode": "gdb",
+        "miDebuggerServerAddress": "localhost:3000",
+        "cwd": "${workspaceFolder}",
+        "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/${input:inputValue}",
+        "setupCommands": [
+          {
+            "description": "Enable pretty-printing for gdb",
+            "text": "-enable-pretty-printing",
+            "ignoreFailures": true
+          }
+          
+        ],
+      },
+
+    ],
+    "inputs": [
+      {
+          "id": "inputValue",
+          "type": "pickString",
+          "description": "Enter node name:",
+          "options": [
+            "front_end",
+          ]
+      }
+    ]
+  
+  }

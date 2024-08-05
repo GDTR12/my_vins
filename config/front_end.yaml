@@ -1,0 +1,5 @@
+my_vins:
+  ros__parameters:
+    camera_topic: "/cam0/image_raw"
+    imu_topic: "/imu0"
+    
