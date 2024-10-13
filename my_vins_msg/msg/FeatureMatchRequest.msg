@@ -1,0 +1,9 @@
+uint16 dim
+sensor_msgs/Image img0
+sensor_msgs/Image img1
+float32[] scores0
+float32[] scores1
+float32[] kpts0
+float32[] kpts1
+float32[] dsp0
+float32[] dsp1

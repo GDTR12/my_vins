@@ -1,0 +1,22 @@
+my_vins:
+  ros__parameters:
+    camera_topic: "/cam0/image_raw"
+    imu_topic: "/imu0"
+    feas_topic: "/my_vins/fea_track"
+    feas_cust_topic: "/my_vins/fea_cust_track"
+    front_end_pcd: "/my_vins/front_end_pcd"
+    front_end_camera_pos: "/my_vins/front_end_camera_pos"
+    distortion_parameters: [-2.917e-01, 8.228e-02, 5.333e-05, -1.578e-04, 0.00]
+    projection_parameters: [4.616e+02, 4.603e+02, 3.630e+02, 2.481e+02]
+    provide_extrinsic_param: true
+    extrinsic_param_q: [0.0, 0.0, 0.0, 1.0] #x, y, z, w
+    extrinsic_param_t: [0.0, 0.0, 0.0]
+    # camera_topic: "/hikrobot_camera/rgb"
+    # imu_topic: "/imu0"
+    # feas_topic: "/my_vins/fea_track"
+    # feas_cust_topic: "/my_vins/fea_cust_track"
+    # front_end_pcd: "/my_vins/front_end_pcd"
+    # front_end_camera_pos: "/my_vins/front_end_camera_pos"
+    # distortion_parameters: [-0.103404, 0.090613, 0.000872, 0.000466, 0.00]
+    # # distortion_parameters: [-2.917e-01, 8.228e-02, 5.333e-05, -1.578e-04, 0.00]
+    # projection_parameters: [878.20415, 875.56807, 633.26849, 530.29927]

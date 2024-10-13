@@ -1,0 +1,9 @@
+uint32 id
+std_msgs/Header header
+string frame
+uint16 dim
+float32[] kpts
+float32[] scores
+float32[] descriptors
+int32[] match_prev_id
+float32[] match_prev_score

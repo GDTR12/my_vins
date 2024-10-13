@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<?xml-model href="" schematypens=""?>
+<package format="3">
+  <name>my_vins_runtime</name>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="guoming.huang@foxmail.com">root</maintainer>
+  <license>TODO: License declaration</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <build_depend>pcl_ros</build_depend>
+  <exec_depend>pcl_ros</exec_depend>
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

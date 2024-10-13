@@ -3,7 +3,7 @@
     {
       "name": "linux-gcc-x64",
       "includePath": [
-        "${workspaceFolder}/src/**",
+        "${workspaceFolder}/back_end/src/**",
         "/usr/include/",
         "/usr/include/eigen3/",
         "/usr/local/include/sophus/",
@@ -14,7 +14,9 @@
         "/opt/ros/rolling/include/cv_bridge/",
         "${workspaceFolder}/../../install/velodyne_msgs/include",
         "/root/miniconda3/envs/ros2/include/python3.11/",
-        "/root/miniconda3/envs/ros2/lib/python3.11/site-packages/**"
+        "/root/miniconda3/envs/ros2/lib/python3.11/site-packages/**",
+        "${workspaceFolder}/../../install/my_vins/include",
+        "${workspaceFolder}/../../install/my_vins_msg/include",
       ],
       "compilerPath": "/usr/bin/gcc",
       "cStandard": "${default}",
