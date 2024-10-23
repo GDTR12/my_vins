@@ -10,6 +10,7 @@
 #include "my_vins_msg/msg/feature_match_prev_response.hpp"
 #include "my_vins_sfm.hpp"
 #include "my_vins_vis.hpp"
+#include "ceres_fgo/imu_factor/imuPreintegration/imuPreintegration.hpp"
 
 namespace my_vins
 {
@@ -18,10 +19,12 @@ using namespace std::chrono_literals;
 using namespace my_vins_msg::msg;
 
 
-struct ImuData{
+struct ImuData_6DOF{
     rclcpp::Time t;
-    float wx{0}, wy{0}, wz{0};
-    float ax{0}, ay{0}, az{0};
+    V3T w = V3T::Zero();
+    V3T a = V3T::Zero();
+    // float wx{0}, wy{0}, wz{0};
+    // float ax{0}, ay{0}, az{0};
 };
 
 // 特征点类型
@@ -99,6 +102,8 @@ private:
 
 class CameraObserver: public ObserverNode{
 public:
+
+    typedef ImuData_6DOF ImuData;
     typedef PointObservation ObservationType;
 
     CameraObserver(rclcpp::Time t):ObserverNode(t){
@@ -117,7 +122,14 @@ public:
 private:
     cv::Mat img;
     int idx_map = -1;
-    std::deque<ImuData> imu_list; // 存储现在到上一个帧之间的imu信息
+
+    imu_preinter::ImuPreintegration preintegrator;
+    bool is_imufull = false;
+    V3T imu_bw = V3T::Zero();
+    V3T imu_ba = V3T::Zero();
+
+    friend class MyVins;
+
 };
 
 
@@ -152,12 +164,19 @@ public:
     void initStructure();
     void init();
     void imageTopicCallback(const sensor_msgs::msg::Image::SharedPtr);
+    void imuTopicCallback(const sensor_msgs::msg::Imu::SharedPtr);
     void matchReponseCallback(const FeatureMatchPrevResponse::SharedPtr);
 
 private:
 
     typedef FeatureMatchPrevResponse::SharedPtr MatchBuf;
+    struct RequestBuf{
+        int id;
+        rclcpp::Time t;
+        cv::Mat img;
+    };
     bool popMatchBuffer();
+    bool popImuData();
 
     rclcpp::Publisher<FeatureMatchPrevRequest>::SharedPtr pub_match;
     rclcpp::Subscription<FeatureMatchPrevResponse>::SharedPtr sub_match;
@@ -166,17 +185,21 @@ private:
     std::shared_ptr<std::thread> thread_main;
 
     std::deque<MatchBuf> match_buf;
-    std::deque<std::pair<int, cv::Mat>> req_buf;
+    std::deque<RequestBuf> req_buf;
     std::mutex mtx_mb;
     std::condition_variable cv_mb;
+
+
+    std::deque<CameraObserver::ImuData> imu_buf;
+    std::mutex mtx_ib;
+    std::condition_variable cv_ib;
+    int idx_nodePutImu = 0;
 
     FeatureManager frame_manager;
     int handled_id_fmanager = -1;
 
     std::shared_ptr<MyVinsSFM> sfm;
     std::shared_ptr<MyVinsVis> vis;
-
-    // std::atomic<bool> fm_bigger_windowsize;
     
 
     State state;

@@ -51,26 +51,22 @@ public:
         
             if (jacobians[0] != nullptr)
             {
-                // Scalar theta = r_ito0.norm();
-                // V3T a = r_ito0 / theta;
-                // M3T Jl = sin(theta) * M3T::Identity() / theta + (1 - sin(theta) / theta) * a * a.transpose() + (1 / theta - cos(theta) / theta) * Sophus::SO3<Scalar>::hat(a);
                 Eigen::Matrix<Scalar, 3, 3> dp_dx;
-                dp_dx = -Sophus::SO3<Scalar>::hat(T_ito0.block<3,3>(0,0) * p_in0);
-                // dp_dx = -Sophus::SO3<Scalar>::hat(p_ini);
-                Eigen::Map<Eigen::Matrix<Scalar, 2, 3>, Eigen::RowMajor> jac(jacobians[0]);
-                jac.block<2,3>(0,0) = de_dp * dp_dx;
+                dp_dx = -Sophus::SO3<Scalar>::hat(T_ito0.block<3,3>(0,0) * p_in0);// * Sophus::SO3<Scalar>::leftJacobian(r_ito0);
+                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[0]);
+                jac = (de_dp * dp_dx).transpose();
             }
 
             if (jacobians[1] != nullptr)
             {
-                Eigen::Map<Eigen::Matrix<Scalar, 2, 3>, Eigen::RowMajor> jac(jacobians[1]);
-                jac = de_dp;
+                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[1]);
+                jac = de_dp.transpose();
             }
             
             if (jacobians[2] != nullptr)
             {
-                Eigen::Map<Eigen::Matrix<Scalar, 2, 3>, Eigen::RowMajor> jac(jacobians[2]);
-                jac = de_dp * T_ito0.block<3,3>(0,0);
+                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[2]);
+                jac = (de_dp * T_ito0.block<3,3>(0,0)).transpose();
             }
         }
         return true;
@@ -494,8 +490,15 @@ void MyVinsSFM::globalBAAuto(int begin_idx, int end_idx)
     eval_options.apply_loss_function = true;
     double total_cost = 0.0;
     std::vector<double> residuals;
-    if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, nullptr)){
+    ceres::CRSMatrix jacobians;
+    if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, &jacobians)){
         std::cout << "Initial cost = " << total_cost << std::endl;
+        for (size_t i = 0; i < 18; i++)
+        {
+            std::cout << jacobians.values[i] << " ";
+        }
+        std::cout << std::endl;
+         
     }else{
         std::cout << "Initial check failed" << std::endl;
     }
@@ -531,7 +534,7 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
 {
     auto& fea_manager = vins.frame_manager;
     std::unique_ptr<ceres::Problem> problem = std::make_unique<ceres::Problem>();
-    ceres::LocalParameterization* so3_manifold = new MathUtils::SO3Parameterization();
+    // ceres::LocalParameterization* so3_manifold = new MathUtils::SO3Parameterization();
     // ceres::Manifold* so3_mainfold = new ceres::QuaternionManifold();
     // ceres::LocalParameterization* so3_mainfold = new MathUtils::QuaternionLocalParameter();
     std::unordered_map<int, Eigen::Matrix<Scalar, 3, 1>> r_ito0_l;
@@ -578,7 +581,7 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
             t_ito0 = -q_0toi.toRotationMatrix().transpose() * t_0toi;
 
             // problem->AddParameterBlock(q_ito0.coeffs().data(), 4, so3_mainfold);
-            problem->AddParameterBlock(r_ito0.data(), 3, so3_manifold);
+            problem->AddParameterBlock(r_ito0.data(), 3);
             problem->AddParameterBlock(t_ito0.data(), 3);
 
             if (idx_node == idx_begin){
@@ -605,18 +608,25 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.num_threads = 1; 
     options.minimizer_progress_to_stdout = true;
+    options.num_threads = std::thread::hardware_concurrency();
 
     // 检查问题的初始状态
     ceres::Problem::EvaluateOptions eval_options;
     eval_options.apply_loss_function = true;
     double total_cost = 0.0;
     std::vector<double> residuals;
-    if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, nullptr)){
+    ceres::CRSMatrix jacobians;
+    if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, &jacobians)){
         std::cout << "Initial cost = " << total_cost << std::endl;
+        for (size_t i = 0; i < 18; i++)
+        {
+            std::cout << jacobians.values[i] << " ";
+        }
+        std::cout << std::endl;
+         
     }else{
         std::cout << "Initial check failed" << std::endl;
     }
-
 
     ceres::Solver::Summary summary;
     ceres::Solve(options, problem.get(), &summary);
@@ -814,6 +824,31 @@ bool MyVinsSFM::initStructure()
     vis.visAllNodesTracjectory();
 
     return true;
+}
+
+void MyVinsSFM::transformAllFramesToWorld(QuaT q_ItoC, V3T t_ItoC)
+{
+    auto& fea_manager = vins.frame_manager;
+    if (fea_manager.getNodeSize() == 0) return;
+    auto& front = fea_manager.getNodeAt<CameraObserver>(0);
+    Sophus::SE3<Scalar> T_C0_hat(front.getPosition());
+    Sophus::SE3<Scalar> T_W0toC0(q_ItoC, t_ItoC);
+    front.setPosition(T_W0toC0.unit_quaternion(), T_W0toC0.translation());
+    Sophus::SE3<Scalar> T_W0toC0_hat = T_W0toC0 * T_C0_hat.inverse(); 
+    for(int i = 1; i < fea_manager.getNodeSize(); i++)
+    {
+        auto& node = fea_manager.getNodeAt<CameraObserver>(i);
+        Sophus::SE3<Scalar> T_C0toCi_hat(node.getPosition());
+        Sophus::SE3<Scalar> T_W0toCi = T_W0toC0_hat * T_C0toCi_hat;
+        node.setPosition(T_W0toCi.unit_quaternion(), T_W0toCi.translation());
+    }
+    for (size_t i = 0; i < fea_manager.getFeatureSize(); i++)
+    {
+        auto& fea = fea_manager.getFeatureAt<PointFeature>(i);
+        V3T data_hat = fea.getData();
+        V3T data = T_W0toC0_hat * data_hat;
+        fea.setData(data);
+    }
 }
 
 } // namespace my_vins

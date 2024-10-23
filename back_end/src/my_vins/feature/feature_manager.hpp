@@ -86,6 +86,16 @@ public:
         return ret;
     }
 
+    Sophus::SE3d getSE3Position(){
+        Sophus::SE3d ret;
+        if (is_initialized()){
+            ret.setQuaternion(q_WtoB);
+            ret.translation() = t_WtoB;
+        }
+        return ret;
+    }
+
+    rclcpp::Time getTime(){return time;}
 
     std::vector<std::unique_ptr<Observation>> observes;
 
@@ -187,29 +197,35 @@ public:
         return setAccordingPrev<FeatureType, ObserverNodeType>(nodes.size() - 1, observation_data, feas_data, map_prev, prev);
     }
 
-    size_t getNodeSize(){return nodes.size();}
-    size_t getFeatureSize(){return feas.size();}
+    int getNodeSize(){return nodes.size();}
+    int getFeatureSize(){return feas.size();}
 
-    ObserverNode* getNodeAt(size_t id){
-        assert(id < nodes.size());
-        return nodes[id].get();
+    ObserverNode* getNodeAt(int id){
+        assert(nodes.size() > 0 && id < nodes.size() && id >= int(-nodes.size()));
+        if (id >= 0) return nodes[id].get();
+        else return nodes[nodes.size() + id].get();
     }
 
     template<typename NodeType>
-    NodeType& getNodeAt(size_t id){
-        assert(id < nodes.size());
-        return *dynamic_cast<NodeType*>(nodes[id].get());
+    NodeType& getNodeAt(int id){
+        // std::cout << ": " << nodes.size() << " :" << id << " : " << int(-nodes.size()) << std::endl;
+        // std::cout << bool(nodes.size() > 0) << " "  << bool(id < nodes.size()) << " " << bool(id >= int(-nodes.size())) << std::endl;
+        assert(nodes.size() > 0 && id < nodes.size() && id >= int(-nodes.size()));
+        if (id >= 0) return *dynamic_cast<NodeType*>(nodes[id].get());
+        else return *dynamic_cast<NodeType*>(nodes[nodes.size() + id].get());
     }
 
 
-    Feature* getFeatureAt(size_t id){
-        assert(id < feas.size());
-        return feas[id].get();
+    Feature* getFeatureAt(int id){
+        assert(feas.size() > 0 && id < feas.size() && id >= int(-feas.size()));
+        if (id >= 0) return feas[id].get();
+        else return feas[feas.size() + id].get();
     }
     template<typename FeatureType>
-    FeatureType& getFeatureAt(size_t id){
-        assert(id < feas.size());
-        return *dynamic_cast<FeatureType*>(feas[id].get());
+    FeatureType& getFeatureAt(int id){
+        assert(feas.size() > 0 && id < feas.size() && id >= int(-feas.size()));
+        if (id >= 0) return *dynamic_cast<FeatureType*>(feas[id].get());
+        else return *dynamic_cast<FeatureType*>(feas[feas.size() + id].get());
     }
     
     void getFeasIndicesHasNodesOver(size_t min_nods, std::vector<int>& indices){

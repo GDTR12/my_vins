@@ -1,6 +1,7 @@
 #include "my_vins.hpp"
 #include "utils/input/input.hpp"
 #include "cv_bridge/cv_bridge.h"
+#include "utils/slam/slam_utils.hpp"
 
 namespace my_vins
 {
@@ -20,11 +21,15 @@ MyVins::MyVins()
         1000, 
         std::bind(&MyVins::imageTopicCallback, this, std::placeholders::_1));
 
+    sub_imu = this->create_subscription<sensor_msgs::msg::Imu>(
+        input.getConfigParam<std::string>("imu_topic"), 
+        10000,
+        std::bind(&MyVins::imuTopicCallback, this, std::placeholders::_1));
 
 
     std::vector<double> c_mat_vec, d_mat_vec;
     input.getConfigParam<std::vector<double>>("projection_parameters", c_mat_vec);
-    input.getConfigParam<std::vector<double>>("projection_parameters", d_mat_vec);
+    input.getConfigParam<std::vector<double>>("distortion_parameters", d_mat_vec);
     M3T camera_mat;
     camera_mat << c_mat_vec[0], 0, c_mat_vec[2],
                       0, c_mat_vec[1], c_mat_vec[3],
@@ -34,11 +39,19 @@ MyVins::MyVins()
     vis = std::make_shared<MyVinsVis>(*this);
     sfm = std::make_shared<MyVinsSFM>(*this, *vis.get(), camera_mat, distort_mat);
 
-
+    std::vector<double> q_ItoC_vec, t_ItoC_vec;
+    input.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
+    input.getConfigParam<std::vector<double>>("extrinsic_param_t", t_ItoC_vec);
+    q_ItoC = Eigen::Map<Eigen::Quaterniond>(q_ItoC_vec.data());
+    q_ItoC.normalize();
+    t_ItoC = Eigen::Map<V3T>(t_ItoC_vec.data());
 
     thread_main = std::make_shared<std::thread>(&MyVins::run, this);
     pthread_setname_np(thread_main->native_handle(), "back_end_run");
     thread_main->detach();
+
+    std::cout.flags(std::ios::fixed); 
+    std::cout.precision(5); 
 }
 
 MyVins::~MyVins(){}
@@ -57,16 +70,11 @@ void MyVins::imageTopicCallback(const sensor_msgs::msg::Image::SharedPtr msg)
     }else{
         grayImg = cvImg->image;
     }
-    req_buf.push_back({req.id, grayImg});
+    auto& req_data = req_buf.emplace_back();
+    req_data.id = req.id;
+    req_data.img = grayImg;
+    req_data.t = msg->header.stamp;
     pub_match->publish(req);
-
-    // auto bridge = cv_bridge::toCvCopy(msg);
-
-    // std::unique_lock lock(mtx_fm);
-    // CameraObserver& observe = frame_manager.append(msg->header.stamp);
-    // observe.img = bridge->image;
-    // lock.unlock();
-    // std::this_thread::sleep_for(2ms);
 }
 
 
@@ -82,6 +90,91 @@ void MyVins::matchReponseCallback(const FeatureMatchPrevResponse::SharedPtr resu
     match_buf.push_back(match);
     lock.unlock();
     cv_mb.notify_one();
+}
+
+void MyVins::imuTopicCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
+{
+    std::unique_lock lock(mtx_ib);
+    auto& imu_data = imu_buf.emplace_back();
+    imu_data.t = rclcpp::Time(msg->header.stamp);
+    imu_data.w = V3T(
+        msg->angular_velocity.x,
+        msg->angular_velocity.y,
+        msg->angular_velocity.z
+    );
+    imu_data.a = V3T(
+        msg->linear_acceleration.x,
+        msg->linear_acceleration.y,
+        msg->linear_acceleration.z
+    );
+    
+    lock.unlock();
+    cv_ib.notify_one();
+}
+
+bool MyVins::popImuData()
+{
+    if (idx_nodePutImu >= frame_manager.getNodeSize() - 1) return false;
+    rclcpp::Time t_begin, t_end;
+    auto& node = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu);
+    auto& node_nxt = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu + 1);
+    t_end = node.getTime();
+    if (idx_nodePutImu == 0){
+        t_begin = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    }else{
+        t_begin = frame_manager.getNodeAt(idx_nodePutImu - 1)->getTime();
+    }
+
+    std::unique_lock lock(mtx_ib);
+    cv_ib.wait(lock, [this](){
+        return !imu_buf.empty();
+    });
+    // 有足够的数据
+    if (imu_buf.back().t > t_end){
+        for (size_t i = 0; i < imu_buf.size() - 1; i++)
+        {
+            auto data = imu_buf.front();
+            auto data_nxt = imu_buf.at(1);
+            if (data.t > t_begin && data.t <= t_end){
+                imu_preinter::PreInterVar inte_var;
+                inte_var.a = data.a;
+                inte_var.w = data.w;
+                inte_var.t = data.t.seconds();
+                node.preintegrator.propagate(inte_var);
+                imu_buf.pop_front();
+            }else if (data_nxt.t > t_end){
+                slam_utils::ImuInterpData data0, data1;
+                data0.time = data.t.seconds();
+                data1.time = data_nxt.t.seconds();
+                data0.w = data.w; data0.a = data.a;
+                data1.w = data_nxt.w; data1.a = data_nxt.a;
+                data0.ba = node.imu_ba; data0.bw = node.imu_bw;
+                data1.ba = node_nxt.imu_ba; data1.bw = node_nxt.imu_bw;
+                
+                auto inter_d = slam_utils::ImuLinearInterp(data0, data1, t_end.seconds());
+                imu_preinter::PreInterVar inter_imu;
+                inter_imu.a = inter_d.a;
+                inter_imu.w = inter_d.w;
+                inter_imu.t = t_end.seconds();
+                node.is_imufull = true;
+                // 开始插值
+                if (t_end - data.t > rclcpp::Duration::from_seconds(2e-5)){
+                    node.preintegrator.propagate(inter_imu);
+                }
+                if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
+                    node_nxt.preintegrator.init(node_nxt.imu_bw, 
+                                                node_nxt.imu_ba,
+                                                node.preintegrator.cov,
+                                                node.preintegrator.jac,
+                                                node.preintegrator.noise);
+                    node_nxt.preintegrator.propagate(inter_imu);
+                }
+            }
+        }
+        idx_nodePutImu ++;
+    }
+    lock.unlock();
+    return true;
 }
 
 bool MyVins::popMatchBuffer()
@@ -123,9 +216,16 @@ bool MyVins::popMatchBuffer()
         }else{
             prev_node = frame_manager.getNodeAt(id - 1);
         }
-        rclcpp::Time t(result->header.stamp);
+
+        auto buf_data = std::find_if(req_buf.begin(), req_buf.end(), [id](RequestBuf& buf){
+            return id == buf.id;
+        });
+        rclcpp::Time t(buf_data->t);
+        // std::cout.flags(std::ios::fixed);
+        // std::cout.precision(10);
+        // std::cout << "t: " << t.seconds() << std::endl;
         auto& node = frame_manager.appendAccordingPrev<PointFeature, CameraObserver>(t, observe_data, feas_data, map_prev, prev_node);
-        node.setImage(req_buf[id].second);
+        node.setImage(buf_data->img);
     }else if(id < frame_manager.getNodeSize()){
         //创建空间点类型,点的观测数据类型,以及观测者
         ObserverNode* prev_node = frame_manager.getNodeAt(id - 1);
@@ -148,23 +248,42 @@ void MyVins::init()
 
 void MyVins::run()
 {
+while (true)
+{
+    popMatchBuffer();
+    popImuData();
     if (!state.initialized){
-        RCLCPP_INFO(this->get_logger(), "[Step]: initialize");
-        while (true)
-        {
-            popMatchBuffer();
-            if (frame_manager.getNodeSize() < 20){
-                continue;
-            }else{
-                RCLCPP_INFO(this->get_logger(), "init structer");
-                if (sfm->initStructure()){
-                    break;
+        if (frame_manager.getNodeSize() < 20 || frame_manager.getNodeSize() % 5 != 0){
+            continue;
+        }else{
+            RCLCPP_INFO(this->get_logger(), "init structer");
+            if (sfm->initStructure()){
+                for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+                {
+                    auto& node = frame_manager.getNodeAt<CameraObserver>(i);
+                    auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
+                    if (node.is_imufull == false || node_prev.is_imufull == false) continue;
+                    Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
+                    V3T t_CitoCj = T_CitoCj.translation();
+                    QuaT q_CitoCj = T_CitoCj.unit_quaternion();
+                    
+                    V3T t_IitoIj = node.preintegrator.getStateVar().block<3,1>(0,0);
+                    V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
+                    QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
+                    
+                    std::cout << "q_IitoIj: " << (q_ItoC.conjugate() * q_IitoIj * q_ItoC).coeffs().transpose() << std::endl;
+                    std::cout << "q_CitoCj: " << q_CitoCj.coeffs().transpose() << std::endl;
                 }
+                state.initialized = true;
+                break;
             }
         }
-        state.initialized = true;
-    }
+    }else if(!state.marginalized){
+        
+    }else if(!state.extrinsic_calibed){
 
+    }
+}
 }
 
 } // namespace my_vins

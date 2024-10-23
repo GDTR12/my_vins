@@ -55,6 +55,8 @@ public:
 
     void globalBA(int idx_begin, int idx_end);
 
+    void transformAllFramesToWorld(QuaT q_wtob, V3T t_wtob);
+
 private:
     M3T camera_mat;
     V4T distort_vec;

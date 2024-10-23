@@ -36,7 +36,7 @@ struct PreInterVar{
 
     V3T w = V3T::Zero();
     V3T a = V3T::Zero();
-    Scalar dt = 0.001;
+    Scalar t = 0.00;
 };
 
 
@@ -50,13 +50,34 @@ public:
     using M3T = Eigen::Matrix<Scalar, 3, 3>;
 
     ImuPreintegration();
+    void init(V3T& bg_, 
+                V3T& ba_,
+                Eigen::Matrix<Scalar, 15, 15>& cov_,
+                Eigen::Matrix<Scalar, 15, 15>& jac_,
+                Eigen::Matrix<Scalar, 18, 18>& noise_);
     ~ImuPreintegration();
 
     void propagate(PreInterVar& v);
     void repropagate(const V3T& ba, const V3T& bg);
     void update(const V3T& ba, const V3T& bg);
+    std::vector<PreInterVar>& getImuData(){return imu_src;};
 
-private:
+
+    Eigen::VectorXd getStateVar()
+    {
+        Eigen::VectorXd ret;
+        ret.conservativeResize(15);
+        ret.block<3,1>(0,0) = p_itok;
+        ret.block<3,1>(3,0) = v_itok;
+        ret.block<3,1>(6,0) = Sophus::SO3d(q_itok).log();
+        ret.block<3,1>(9,0) = bg;
+        ret.block<3,1>(12,0) = ba;
+        return ret;
+    }
+
+    V3T getBiasGyroscope(){return bg;}
+    V3T getBiasAccel(){return ba;}
+
     // 积分变量
     V3T p_itok = V3T::Zero(), v_itok = V3T::Zero();
     QuaT q_itok = QuaT::Identity();

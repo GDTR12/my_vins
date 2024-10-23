@@ -2,7 +2,7 @@
 
 namespace imu_preinter{
 
-ImuPreintegration::ImuPreintegration(/* args */)
+ImuPreintegration::ImuPreintegration()
 {
 }
 
@@ -38,6 +38,20 @@ void ImuPreintegration::update(const V3T& new_ba, const V3T& new_bg)
     ba = new_ba; bg = new_bg;
 }
 
+
+void ImuPreintegration::init(V3T& bg_, 
+                V3T& ba_,
+                Eigen::Matrix<Scalar, 15, 15>& cov_,
+                Eigen::Matrix<Scalar, 15, 15>& jac_,
+                Eigen::Matrix<Scalar, 18, 18>& noise_)
+{
+    bg = bg;
+    ba = ba;
+    cov = cov_;
+    jac = jac_;
+    noise = noise_;
+}
+
 void ImuPreintegration::propagate(PreInterVar& v)
 {
     PreInterVar lv;
@@ -47,7 +61,7 @@ void ImuPreintegration::propagate(PreInterVar& v)
         lv = imu_src.back();
     }
     imu_src.push_back(v);
-    Scalar dt = v.dt;
+    Scalar dt = v.t - lv.t;
     Scalar dtt = dt * dt;
     Scalar dttt = dtt * dt;
 
@@ -55,7 +69,8 @@ void ImuPreintegration::propagate(PreInterVar& v)
 
     // 中值积分
     V3T a = 0.5 * (q_itok * (lv.a - ba));
-    q_itok = q_itok * QuaT(1, v.w.x(), v.w.y(), v.w.z());
+    V3T w_dt = 0.5 * dt * v.w;
+    q_itok = q_itok * QuaT(1, w_dt.x(), w_dt.y(), w_dt.z());
     q_itok.normalize();
     M3T R_j = q_itok.toRotationMatrix();
 
