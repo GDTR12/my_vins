@@ -4,6 +4,39 @@
 #include "ceres/ceres.h"
 #include "sophus/se3.hpp"
 #include "utils/common/math_utils.hpp"
+#include "utils/common/timer_helper.hpp"
+// Camera observations of landmarks (i.e. pixel coordinates) will be stored as Point2 (x, y).
+#include <gtsam/geometry/Point2.h>
+
+// Each variable in the system (poses and landmarks) must be identified with a unique key.
+// We can either use simple integer keys (1, 2, 3, ...) or symbols (X1, X2, L1).
+// Here we will use Symbols
+#include <gtsam/inference/Symbol.h>
+
+// In GTSAM, measurement functions are represented as 'factors'. Several common factors
+// have been provided with the library for solving robotics/SLAM/Bundle Adjustment problems.
+// Here we will use Projection factors to model the camera's landmark observations.
+// Also, we will initialize the robot at some location using a Prior factor.
+#include <gtsam/slam/ProjectionFactor.h>
+
+// When the factors are created, we will add them to a Factor Graph. As the factors we are using
+// are nonlinear factors, we will need a Nonlinear Factor Graph.
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+
+// Finally, once all of the factors have been added to our factor graph, we will want to
+// solve/optimize to graph to find the best (Maximum A Posteriori) set of variable values.
+// GTSAM includes several nonlinear optimizers to perform this step. Here we will use a
+// trust-region method known as Powell's Degleg
+#include <gtsam/nonlinear/DoglegOptimizer.h>
+#include <gtsam/nonlinear/LevenbergMarquardtOptimizer.h>
+
+// The nonlinear solvers within GTSAM are iterative solvers, meaning they linearize the
+// nonlinear functions around an initial linearization point, then solve the linear system
+// to update the linearization point. This happens repeatedly until the solver converges
+// to a consistent set of variable values. This requires us to specify an initial guess
+// for each variable, held in a Values container.
+#include <gtsam/nonlinear/Values.h>
+#include <gtsam_unstable/slam/PartialPriorFactor.h>
 
 namespace my_vins
 {
@@ -640,11 +673,125 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
     for (auto& data_n : r_ito0_l)
     {
         auto& node = fea_manager.getNodeAt<CameraObserver>(data_n.first);
-        QuaT qua = Sophus::SO3<Scalar>::exp(data_n.second).unit_quaternion();
+        QuaT qua = Sophus::SO3<Scalar>::exp(data_n.second).unit_quaternion().conjugate();
         V3T trans = -qua.matrix() * t_ito0_l[data_n.first];
         node.setPosition(qua, trans);
     }
 }
+
+
+void MyVinsSFM::globalBAGTSAM(int idx_begin, int idx_end)
+{
+    auto& fea_manager = vins.frame_manager;
+    gtsam::NonlinearFactorGraph graph;
+    auto pose_noise = gtsam::noiseModel::Diagonal::Sigmas(
+        (gtsam::Vector(6) << gtsam::Vector3::Constant(0.1), gtsam::Vector3::Constant(0.3)).finished()
+    );
+    auto measurement_noise =
+      gtsam::noiseModel::Isotropic::Sigma(2, 1.0);  // one pixel in u and v
+    std::unordered_map<int, gtsam::Symbol> x_0toi_l;
+    std::unordered_map<int, gtsam::Symbol> p_param_l;
+    gtsam::Values initialEstimate;
+    gtsam::Cal3_S2::shared_ptr K(new gtsam::Cal3_S2(camera_mat(0,0), camera_mat(1,1), 0, camera_mat(0,2), camera_mat(1,2)));
+    auto huberModel = gtsam::noiseModel::Robust::Create(
+        gtsam::noiseModel::mEstimator::Cauchy::Create(50),
+        gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector2(0.0, 0.0))  // 观测噪声
+    );
+
+    auto pointNoise = gtsam::noiseModel::Isotropic::Sigma(3, 0.1);
+
+    for (size_t i = 0; i < fea_manager.getFeatureSize(); i++)
+    {
+        auto& fea = fea_manager.getFeatureAt<PointFeature>(i);
+        if (fea.map_node.size() < 2)
+            continue;
+
+        p_param_l[i] = gtsam::Symbol('l', i);
+        gtsam::Point3 p = fea.getData();
+        if (!initialEstimate.exists(gtsam::Symbol('l', i))){
+            initialEstimate.insert<gtsam::Point3>(gtsam::Symbol('l', i), p);
+        }
+
+        for (auto idx_node : fea.map_node)
+        {
+            auto& node = fea_manager.getNodeAt<CameraObserver>(idx_node);
+            auto& observes = node.observes;
+            V2T ob_data;
+            auto iter = std::find_if(observes.begin(), observes.end(), [i, &ob_data](std::unique_ptr<Observation>& observation){
+                if (observation->idx == i){
+                    PointObservation& p_observe = *dynamic_cast<PointObservation*>(observation.get());
+                    ob_data = p_observe.getData().head(2);
+                    return true;
+                }
+                return false;
+            });
+            if (iter == observes.end()){
+                std::cerr << "Wrong mapping" << std::endl;
+            }
+
+            QuaT q_0toi; V3T t_0toi;
+            node.getPosition(q_0toi, t_0toi);
+
+            x_0toi_l[idx_node] = gtsam::Symbol('x', idx_node);
+
+            auto x_0toi = gtsam::Pose3(Sophus::SE3<Scalar>(q_0toi.toRotationMatrix(), t_0toi).matrix());
+            if (!initialEstimate.exists(gtsam::Symbol('x', idx_node))){
+                initialEstimate.insert<gtsam::Pose3>(gtsam::Symbol('x', idx_node), x_0toi);
+            }
+
+            if (idx_node == idx_begin){
+                gtsam::noiseModel::Diagonal::shared_ptr rotation_oise = 
+                    gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0., 0., 0.));
+                graph.add(gtsam::PartialPriorFactor<gtsam::Pose3>(gtsam::Symbol('x', idx_node), std::vector<size_t>({0,1,2}), gtsam::Rot3::Logmap(x_0toi.rotation()), rotation_oise));
+            }
+
+            if (idx_node == idx_end || idx_node == idx_begin){
+                gtsam::noiseModel::Diagonal::shared_ptr trans_noise = 
+                    gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.0, 0.0, 0.));
+                graph.add(gtsam::PartialPriorFactor<gtsam::Pose3>(gtsam::Symbol('x', idx_node), std::vector<size_t>({3,4,5}), x_0toi.translation(), trans_noise));
+            }
+
+            graph.emplace_shared<gtsam::GenericProjectionFactor<gtsam::Pose3, gtsam::Point3, gtsam::Cal3_S2>>(
+                ob_data, huberModel, gtsam::Symbol('x', idx_node), gtsam::Symbol('l', i), K
+            );
+        }
+    }
+    std::cout << "begin solve" << std::endl;
+
+
+    auto start_t = utils_common::TimerHelper::start();
+    auto optimizer = gtsam::LevenbergMarquardtOptimizer(graph, initialEstimate);
+    gtsam::Values result = optimizer.optimize();
+    double elapsed_ms = utils_common::TimerHelper::end(start_t);
+
+    // result.print("Final results: \n");
+    std::cout << "initial error = " << graph.error(initialEstimate) << std::endl;
+    std::cout << "final error = " << graph.error(result) << std::endl;
+    std::cout << "time = " << elapsed_ms << std::endl;
+
+    for (auto& data_p : p_param_l)
+    {
+        auto& fea = fea_manager.getFeatureAt<PointFeature>(data_p.first);
+        auto data = result.at<gtsam::Point3>(data_p.second.key());
+        fea.setData(data);
+    }
+    for (auto& data_n : x_0toi_l)
+    {
+        auto& node = fea_manager.getNodeAt<CameraObserver>(data_n.first);
+        // Sophus::SE3<Scalar> data = Sophus::SE3<Scalar>(result.at<gtsam::Pose3>(data_n.second.key()).rotation().toQuaternion().conjugate(), 
+        //    -result.at<gtsam::Pose3>(data_n.second.key()).rotation().toQuaternion().conjugate().toRotationMatrix() * result.at<gtsam::Pose3>(data_n.second.key()).translation());
+
+        Sophus::SE3<Scalar> data = Sophus::SE3<Scalar>(result.at<gtsam::Pose3>(data_n.second.key()).rotation().toQuaternion(), 
+           result.at<gtsam::Pose3>(data_n.second.key()).translation());
+
+        node.setPosition(data.unit_quaternion(), data.translation());
+    }
+
+}
+
+
+
+
 
 bool MyVinsSFM::initStructure()
 {
@@ -816,8 +963,9 @@ bool MyVinsSFM::initStructure()
     // vis.visAllFeatures();
     // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     vis.visAllNodesTracjectory();
-    globalBA(idx_node_begin, idx_node_end);
+    // globalBA(idx_node_begin, idx_node_end);
     // globalBAAuto(idx_node_begin, idx_node_end);
+    globalBAGTSAM(idx_node_begin, idx_node_end);
     vis.visAllNodesWithFeas();
     // vis.visAllFeatures();
     // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);

@@ -17,6 +17,9 @@ find_package(fmt REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(TIFF REQUIRED)
+
+set(GTSAM_DIR "/root/workspace/packages/gtsam/install_4/lib/cmake/GTSAM")
+find_package(GTSAM REQUIRED)
 # find_package(pybind11 REQUIRED)
 # set(PYTHON_PATH "/root/miniconda3/envs/ros2")
 # set(PYTHON_VERSION "3.11")
@@ -46,6 +49,7 @@ set(MY_PROJECT_INCLUDE
   ${EIGEN3_INCLUDE_DIR}
   ${OpenCV_INCLUDE_DIRS}
   # ${PYTHON_INLCUDE_DIRS}
+  ${GTSAM_INCLUDE_DIR}
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
 )
@@ -60,6 +64,7 @@ set(MY_PROJECT_LIBS
   fmt::fmt
   ${OpenCV_LIBS}
   TIFF::TIFF
+  gtsam
   # pybind11::module
   # ${PYTHON_LIBS}
 )

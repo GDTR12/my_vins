@@ -10,9 +10,10 @@ my_vins:
     projection_parameters: [4.616e+02, 4.603e+02, 3.630e+02, 2.481e+02]
     provide_extrinsic_param: true
     # in latex $^I_C\mathbf{q}$
-    extrinsic_param_q: [0.007707179756, -0.01049932337, -0.7017528003, 0.7123014607] #x, y, z, w
+    extrinsic_param_q: [-0.007707179756, 0.01049932337, 0.7017528003, 0.7123014607] #x, y, z, w
     # in latex $^I_C\mathbf{t}$
-    extrinsic_param_t: [0.06522290954, -0.02070638549, -0.00805460246]
+    # extrinsic_param_t: [0.06522290954, -0.02070638549, -0.00805460246]
+    extrinsic_param_t: [-0.0216401454975,-0.064676986768, 0.00981073058949]
     # camera_topic: "/hikrobot_camera/rgb"
     # imu_topic: "/imu0"
     # feas_topic: "/my_vins/fea_track"

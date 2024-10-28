@@ -55,6 +55,8 @@ public:
 
     void globalBA(int idx_begin, int idx_end);
 
+    void globalBAGTSAM(int idx_begin, int idx_end);
+
     void transformAllFramesToWorld(QuaT q_wtob, V3T t_wtob);
 
 private:
