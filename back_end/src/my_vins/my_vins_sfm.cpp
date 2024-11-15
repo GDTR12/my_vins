@@ -86,20 +86,20 @@ public:
             {
                 Eigen::Matrix<Scalar, 3, 3> dp_dx;
                 dp_dx = -Sophus::SO3<Scalar>::hat(T_ito0.block<3,3>(0,0) * p_in0);// * Sophus::SO3<Scalar>::leftJacobian(r_ito0);
-                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[0]);
-                jac = (de_dp * dp_dx).transpose();
+                Eigen::Map<Eigen::Matrix<Scalar, 2, 3, Eigen::RowMajor>> jac(jacobians[0]);
+                jac = de_dp * dp_dx;
             }
 
             if (jacobians[1] != nullptr)
             {
-                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[1]);
-                jac = de_dp.transpose();
+                Eigen::Map<Eigen::Matrix<Scalar, 2, 3, Eigen::RowMajor>> jac(jacobians[1]);
+                jac = de_dp;
             }
             
             if (jacobians[2] != nullptr)
             {
-                Eigen::Map<Eigen::Matrix<Scalar, 3, 2>, Eigen::RowMajor> jac(jacobians[2]);
-                jac = (de_dp * T_ito0.block<3,3>(0,0)).transpose();
+                Eigen::Map<Eigen::Matrix<Scalar, 2, 3, Eigen::RowMajor>> jac(jacobians[2]);
+                jac = de_dp * T_ito0.block<3,3>(0,0);
             }
         }
         return true;
@@ -963,9 +963,9 @@ bool MyVinsSFM::initStructure()
     // vis.visAllFeatures();
     // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     vis.visAllNodesTracjectory();
-    // globalBA(idx_node_begin, idx_node_end);
+    globalBA(idx_node_begin, idx_node_end);
     // globalBAAuto(idx_node_begin, idx_node_end);
-    globalBAGTSAM(idx_node_begin, idx_node_end);
+    // globalBAGTSAM(idx_node_begin, idx_node_end);
     vis.visAllNodesWithFeas();
     // vis.visAllFeatures();
     // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);

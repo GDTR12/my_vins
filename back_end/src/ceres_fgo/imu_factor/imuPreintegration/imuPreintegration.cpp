@@ -1,6 +1,9 @@
 #include "imuPreintegration.hpp"
+#include "utils/common/math_utils.hpp"
 
 namespace imu_preinter{
+
+const Eigen::Vector3d gravity(0,0,9.8);
 
 ImuPreintegration::ImuPreintegration()
 {
@@ -28,11 +31,19 @@ void ImuPreintegration::repropagate(const V3T& new_ba, const V3T& new_bg)
 
 void ImuPreintegration::update(const V3T& new_ba, const V3T& new_bg)
 {
-    V3T delta_ba = new_ba - ba; V3T delta_bg = bg - new_bg;
-    p_itok = p_itok + jac_pa * delta_ba + jac_pg * delta_bg;
-    v_itok = v_itok + jac_va * delta_ba + jac_vg * delta_bg;
+    V3T delta_ba = new_ba - ba; V3T delta_bg = new_bg - bg;
+    M3T dq_dbg = jac.block<3,3>(IDX_R, IDX_BG);
 
-    V3T delta_q = 0.5 * jac_qg * delta_bg;
+    M3T dp_dba = jac.block<3,3>(IDX_P, IDX_BA);
+    M3T dp_dbg = jac.block<3,3>(IDX_P, IDX_BG);
+
+    M3T dv_dba = jac.block<3,3>(IDX_V, IDX_BA);
+    M3T dv_dbg = jac.block<3,3>(IDX_V, IDX_BG);
+
+    p_itok = p_itok + dp_dba * delta_ba + dp_dbg * delta_bg;
+    v_itok = v_itok + dv_dba * delta_ba + dv_dbg * delta_bg;
+
+    V3T delta_q = 0.5 * dq_dbg * delta_bg;
     q_itok = q_itok * QuaT(1, delta_q.x(), delta_q.y(), delta_q.z());
     q_itok.normalize();
     ba = new_ba; bg = new_bg;
@@ -86,53 +97,181 @@ void ImuPreintegration::propagate(PreInterVar& v)
     Eigen::Matrix<Scalar, 15, 18> G;
 
     M3T R_hat_ai = R_i * Sophus::SO3<Scalar>::hat(lv.a - ba);
-    M3T R_hat_aj = Sophus::SO3<Scalar>::hat(v.a - ba);
+    M3T R_hat_aj = R_j * Sophus::SO3<Scalar>::hat(v.a - ba);
     M3T hat_w = Sophus::SO3<Scalar>::hat(w);
     
 
     F.setIdentity(); G.setZero();
     // f_12
-    F.block<3,3>(0,3) = - 0.25 * dtt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
+    F.block<3,3>(IDX_P,IDX_R) = - 0.25 * dtt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
     // f_15
-    F.block<3,3>(0,12) = 0.25 * dttt * R_hat_aj;
+    F.block<3,3>(IDX_P,IDX_BG) = 0.25 * dttt * R_hat_aj;
     // f_32
-    F.block<3,3>(6,3) = - 0.5 * dt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
+    F.block<3,3>(IDX_V,IDX_R) = - 0.5 * dt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
     // f_35
-    F.block<3,3>(6,12) = 0.5 * dtt * R_hat_aj;
+    F.block<3,3>(IDX_V,IDX_BG) = 0.5 * dtt * R_hat_aj;
 
-    F.block<3,3>(0,6) = M3T::Identity() * dt;
-    F.block<3,3>(0,9) = - 0.25 * (R_i + R_j) * dtt;
+    F.block<3,3>(IDX_P,IDX_V) = M3T::Identity() * dt;
+    F.block<3,3>(IDX_P,IDX_BA) = - 0.25 * (R_i + R_j) * dtt;
 
-    F.block<3,3>(3,3) = M3T::Identity() - hat_w * dt;
-    F.block<3,3>(3,12) = - M3T::Identity() * dt;
+    F.block<3,3>(IDX_R,IDX_R) = M3T::Identity() - hat_w * dt;
+    F.block<3,3>(IDX_R,IDX_BG) = - M3T::Identity() * dt;
 
-    F.block<3,3>(6,9) = - 0.5 * (R_i + R_j) * dt;
+    F.block<3,3>(IDX_V,IDX_BA) = - 0.5 * (R_i + R_j) * dt;
 
     // g_12
     M3T g12 = - 0.125 * dttt * R_hat_aj;
-    G.block<3,3>(0,3) = g12;
+    G.block<3,3>(IDX_N_AK,IDX_N_WK) = g12;
     // g_14
-    G.block<3,3>(0,9) = g12;
+    G.block<3,3>(IDX_N_AK,IDX_N_WK_1) = g12;
     // g_32
-    G.block<3,3>(6,3) = 2 * g12;
+    G.block<3,3>(IDX_N_AK_1,IDX_N_WK) = 2 * g12;
     // g_34
-    G.block<3,3>(6,9) = 2 * g12;
+    G.block<3,3>(IDX_N_AK_1,IDX_N_WK_1) = 2 * g12;
 
-    G.block<3,3>(0,0) = 0.25 * R_i * dtt;
-    G.block<3,3>(0,6) = 0.25 * R_j * dtt;
+    G.block<3,3>(IDX_N_AK,IDX_N_AK) = 0.25 * R_i * dtt;
+    G.block<3,3>(IDX_N_AK,IDX_N_AK_1) = 0.25 * R_j * dtt;
 
-    G.block<3,3>(3,3) = 0.5 * M3T::Identity() * dt;
-    G.block<3,3>(3,9) = 0.5 * M3T::Identity() * dt;
+    G.block<3,3>(IDX_N_WK,IDX_N_WK) = 0.5 * M3T::Identity() * dt;
+    G.block<3,3>(IDX_N_WK,IDX_N_WK_1) = 0.5 * M3T::Identity() * dt;
 
-    G.block<3,3>(6,0) = 0.5 * R_i * dt;
-    G.block<3,3>(6,6) = 0.5 * R_j * dt;
+    G.block<3,3>(IDX_N_AK_1,IDX_N_AK) = 0.5 * R_i * dt;
+    G.block<3,3>(IDX_N_AK_1,IDX_N_AK_1) = 0.5 * R_j * dt;
 
-    G.block<3,3>(9,12) = M3T::Identity() * dt;
+    G.block<3,3>(IDX_N_WK_1,IDX_N_BA) = M3T::Identity() * dt;
     
-    G.block<3,3>(12,15) = M3T::Identity() * dt;
+    G.block<3,3>(IDX_N_BA,IDX_N_BW) = M3T::Identity() * dt;
 
     cov = F * cov * F.transpose() + G * noise * G.transpose();
     jac = F * jac;
 }
+
+
+Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(QuaT& q_i, V3T& p_i, V3T& v_i, V3T& bg_i,  V3T& ba_i,
+                                                                           QuaT& q_j, V3T& p_j, V3T& v_j, V3T& bg_j,  V3T& ba_j,
+                                                                           QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr)
+{
+    Eigen::Matrix<Scalar, 15, 1> res;
+    q_i.normalize();
+    q_j.normalize();
+
+    M3T dq_dbg = jac.block<3,3>(IDX_R, IDX_BG);
+
+    M3T dp_dba = jac.block<3,3>(IDX_P, IDX_BA);
+    M3T dp_dbg = jac.block<3,3>(IDX_P, IDX_BG);
+
+    M3T dv_dba = jac.block<3,3>(IDX_V, IDX_BA);
+    M3T dv_dbg = jac.block<3,3>(IDX_V, IDX_BG);
+
+    QuaT q_ij = (q_ij * QuaT(1, 0.5 * dq_dbg.x(), 0.5 * dq_dbg.y(), 0.5 * dq_dbg.z())).normalized();
+    V3T p_ij = p_itok + dp_dba * (ba_i - ba) + dp_dbg * (bg_i - bg);
+    V3T v_ij = v_itok + dv_dba * (ba_i - ba) + dv_dbg * (bg_i - bg);
+
+    res.head(IDX_P) = q_i.conjugate().toRotationMatrix() * (p_j - p_i - v_i * total_t + 0.5 * gravity * total_t * total_t) - p_ij;
+    res.head(IDX_R) = 2 * (q_ij.conjugate() * (q_i.conjugate() * q_j)).vec();
+    res.head(IDX_V) = q_i.conjugate() * (v_j - v_i + gravity * total_t) - v_ij;
+    res.head(IDX_BA) = ba_j - ba_i;
+    res.head(IDX_BG) = bg_j - bg_i;
+
+    if (q_ij_corrected != nullptr){
+        *q_ij_corrected = q_ij;
+    }
+    if (p_ij_corrected != nullptr){
+        *p_ij_corrected = p_ij;
+    }
+    if (v_ij_corrected != nullptr){
+        *v_ij_corrected = v_ij;
+    }
+    return res;
+}                                     
+
+ 
+void ImuPreintegration::computePrevPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<ImuPreintegration::Scalar, 15, 3>& jacobian,
+                                                PoseVar& Xi, PoseVar& Xj,
+                                                QuaT* q_ij_corrected = nullptr)
+{
+    jacobian.setZero();
+
+    QuaT qij;
+    if (q_ij_corrected != nullptr){
+        qij = q_ij_corrected->normalized();
+    }else {
+        qij = q_itok;
+    }
+
+    QuaT qi = Xi.q().normalized();
+    QuaT qj = Xj.q().normalized();
+    M3T Ri = qi.toRotationMatrix();
+    M3T Rj = qj.toRotationMatrix();
+    switch (P_DX)
+    {
+    case IDX_P:
+        jacobian.block<3, 3>(0,0) = -Ri.transpose();
+        break;
+    case IDX_R:
+        jacobian.block<3,3>(IDX_P, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose() * (Xj.p() - Xi.p() - Xi.v() * total_t + 0.5 * gravity * total_t * total_t));
+        jacobian.block<3,3>(IDX_R, 0) = -(MathUtils::quaLeftMultiMat(qj.conjugate() * qi) * MathUtils::quaLeftMultiMat(qij)).bottomRightCorner<3,3>();
+        jacobian.block<3,3>(IDX_V, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose()* (Xj.v() - Xi.v() + gravity * total_t));
+        break;
+    case IDX_V:
+        jacobian.block<3,3>(IDX_P, 0) = - Ri.transpose() * total_t;
+        jacobian.block<3,3>(IDX_V, 0) = - Ri.transpose();
+        break;
+    case IDX_BA:
+        jacobian.block<3,3>(IDX_P, 0) = - jac.block<3,3>(IDX_P, IDX_BA);
+        jacobian.block<3,3>(IDX_V, 0) = - jac.block<3,3>(IDX_V, IDX_BA);
+        jacobian.block<3,3>(IDX_BA, 0) = - M3T::Identity();
+        break;
+    case IDX_BG:
+        jacobian.block<3,3>(IDX_P, 0) = - jac.block<3,3>(IDX_P, IDX_BG);
+        jacobian.block<3,3>(IDX_R, 0) = - MathUtils::quaLeftMultiMat(qj.conjugate() * qi * qij).bottomRightCorner<3,3>() * jac.block<3,3>(IDX_R, IDX_BG);
+        jacobian.block<3,3>(IDX_V, 0) = - jac.block<3,3>(IDX_V, IDX_BG);
+        jacobian.block<3,3>(IDX_BG, 0) = - M3T::Identity();
+        break;
+    default:
+        break;
+    }
+}
+
+void ImuPreintegration::computeBackPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<ImuPreintegration::Scalar, 15, 3>& jacobian,
+                                                PoseVar& Xi, PoseVar& Xj,
+                                                QuaT* q_ij_corrected = nullptr)
+{
+    jacobian.setZero();
+
+    QuaT qij;
+    if (q_ij_corrected != nullptr){
+        qij = q_ij_corrected->normalized();
+    }else {
+        qij = q_itok;
+    }
+
+    QuaT qi = Xi.q().normalized();
+    QuaT qj = Xj.q().normalized();
+    M3T Ri = qi.toRotationMatrix();
+    M3T Rj = qj.toRotationMatrix();
+    switch (P_DX)
+    {
+    case IDX_P:
+        jacobian.block<3,3>(IDX_P, 0) = Ri.transpose();
+        break;
+    case IDX_R:
+        jacobian.block<3,3>(IDX_R, 0) = MathUtils::quaLeftMultiMat(qij.conjugate() * qi.conjugate() * qj).bottomRightCorner<3,3>();
+        break;
+    case IDX_V:
+        jacobian.block<3,3>(IDX_V, 0) = Ri.transpose();
+        break;
+    case IDX_BA:
+        jacobian.block<3,3>(IDX_BA, 0) = M3T::Identity();
+        break;
+    case IDX_BG:
+        jacobian.block<3,3>(IDX_BG, 0) = M3T::Identity();
+        break;
+    default:
+        break;
+    }
+}
+
+
 
 }

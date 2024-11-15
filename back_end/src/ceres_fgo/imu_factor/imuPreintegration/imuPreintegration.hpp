@@ -49,6 +49,61 @@ public:
     using QuaT = Eigen::Quaternion<Scalar>;
     using M3T = Eigen::Matrix<Scalar, 3, 3>;
 
+    enum InterDeltaVar{
+        IDX_P = 0,
+        IDX_R = 3,
+        IDX_V = 6,
+        IDX_BA = 9,
+        IDX_BG = 12
+    };
+    enum InterNoiseVar{
+        IDX_N_AK = 0,
+        IDX_N_WK = 3,
+        IDX_N_AK_1 = 6,
+        IDX_N_WK_1 = 9,
+        IDX_N_BA = 12,
+        IDX_N_BW = 15
+    };
+
+    struct PoseVar
+    {
+    public:
+        PoseVar()
+        {
+            delete_mark = true;
+            data_pq = new Scalar[7];
+            data_vag = new Scalar[9];
+        }
+        PoseVar(Scalar* var_pq, Scalar* var_vag)
+        {
+            data_pq = var_pq;
+            data_vag = var_pq;
+            delete_mark = false;
+        }
+        ~PoseVar()
+        {
+            if (delete_mark)
+            {
+                delete[] data_pq;
+                delete[] data_vag;
+            }
+        }
+        V3T& p() {return *reinterpret_cast<V3T*>(data_pq);}
+        QuaT& q() {return *reinterpret_cast<QuaT*>(data_pq + 3);}
+        V3T& v() {return *reinterpret_cast<V3T*>(data_vag);}
+        V3T& ba() {return *reinterpret_cast<V3T*>(data_vag + 3);}
+        V3T& bg() {return *reinterpret_cast<V3T*>(data_vag + 6);}
+
+    private:
+        bool delete_mark = true;
+        Scalar* data_pq;
+        Scalar* data_vag;
+    };
+
+
+
+
+
     ImuPreintegration();
     void init(V3T& bg_, 
                 V3T& ba_,
@@ -60,6 +115,17 @@ public:
     void propagate(PreInterVar& v);
     void repropagate(const V3T& ba, const V3T& bg);
     void update(const V3T& ba, const V3T& bg);
+    Eigen::Matrix<Scalar, 15,1> evaluate(QuaT& q_i, V3T& p_i, V3T& v_i, V3T& bg_i,  V3T& ba_i,
+                                         QuaT& q_j, V3T& p_j, V3T& v_j, V3T& bg_j,  V3T& ba_j,
+                                         QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr);
+
+    void computePrevPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<Scalar, 15, 3>& jac,
+                            PoseVar& Xi, PoseVar& Xj,
+                            QuaT* q_ij_corrected = nullptr);
+    void computeBackPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<Scalar, 15, 3>& jac,
+                            PoseVar& Xi, PoseVar& Xj,
+                            QuaT* q_ij_corrected = nullptr);
+
     std::vector<PreInterVar>& getImuData(){return imu_src;};
 
 
@@ -83,12 +149,6 @@ public:
     QuaT q_itok = QuaT::Identity();
     Scalar total_t = 0;
 
-    // 积分量对bias的雅克比
-    M3T jac_pg = M3T::Identity();
-    M3T jac_pa = M3T::Identity();
-    M3T jac_vg = M3T::Identity();
-    M3T jac_va = M3T::Identity();
-    M3T jac_qg = M3T::Identity();
 
     Eigen::Matrix<Scalar, 15, 15> cov = Eigen::Matrix<Scalar, 15, 15>::Identity();
     Eigen::Matrix<Scalar, 18, 18> noise = Eigen::Matrix<Scalar, 18, 18>::Identity();
