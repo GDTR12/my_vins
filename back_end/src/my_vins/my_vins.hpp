@@ -123,7 +123,7 @@ private:
     cv::Mat img;
     int idx_map = -1;
 
-    imu_preinter::ImuPreintegration preintegrator;
+    imu_preintegrate::ImuPreintegration preintegrator;
     bool is_imufull = false;
     V3T imu_bw = V3T::Zero();
     V3T imu_ba = V3T::Zero();
@@ -166,6 +166,7 @@ public:
     void imageTopicCallback(const sensor_msgs::msg::Image::SharedPtr);
     void imuTopicCallback(const sensor_msgs::msg::Imu::SharedPtr);
     void matchReponseCallback(const FeatureMatchPrevResponse::SharedPtr);
+    void visualInertialAlign();
 
 private:
 

@@ -70,10 +70,10 @@ public:
     }
 
     void getPosition(QuaT& q_0toi, V3T& t_0toi){
-        if (is_initialized()){
+        // if (is_initialized()){
             q_0toi = q_WtoB;
             t_0toi = t_WtoB;
-        }
+        // }
     }
 
 

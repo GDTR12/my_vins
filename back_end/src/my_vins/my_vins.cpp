@@ -2,6 +2,7 @@
 #include "utils/input/input.hpp"
 #include "cv_bridge/cv_bridge.h"
 #include "utils/slam/slam_utils.hpp"
+#include "utils/common/math_utils.hpp"
 
 namespace my_vins
 {
@@ -136,7 +137,7 @@ bool MyVins::popImuData()
             auto data = imu_buf.front();
             auto data_nxt = imu_buf.at(1);
             if (data.t > t_begin && data.t <= t_end){
-                imu_preinter::PreInterVar inte_var;
+                imu_preintegrate::PreInterVar inte_var;
                 inte_var.a = data.a;
                 inte_var.w = data.w;
                 inte_var.t = data.t.seconds();
@@ -152,7 +153,7 @@ bool MyVins::popImuData()
                 data1.ba = node_nxt.imu_ba; data1.bw = node_nxt.imu_bw;
                 
                 auto inter_d = slam_utils::ImuLinearInterp(data0, data1, t_end.seconds());
-                imu_preinter::PreInterVar inter_imu;
+                imu_preintegrate::PreInterVar inter_imu;
                 inter_imu.a = inter_d.a;
                 inter_imu.w = inter_d.w;
                 inter_imu.t = t_end.seconds();
@@ -161,12 +162,18 @@ bool MyVins::popImuData()
                 if (t_end - data.t > rclcpp::Duration::from_seconds(2e-5)){
                     node.preintegrator.propagate(inter_imu);
                 }
+                // if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
+                //     node_nxt.preintegrator.init(node_nxt.imu_bw, 
+                //                                 node_nxt.imu_ba,
+                //                                 node.preintegrator.getCov(),
+                //                                 node.preintegrator.getJac(),
+                //                                 node.preintegrator.getNoise());
                 if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
-                    node_nxt.preintegrator.init(node_nxt.imu_bw, 
-                                                node_nxt.imu_ba,
-                                                node.preintegrator.cov,
-                                                node.preintegrator.jac,
-                                                node.preintegrator.noise);
+                    node_nxt.preintegrator.init((V3T() << V3T::Zero()).finished(), 
+                                                (V3T() << V3T::Zero()).finished(),
+                                                (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
+                                                (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
+                                                (Eigen::Matrix<Scalar, 18, 18>() << Eigen::Matrix<Scalar, 18, 18>::Identity()).finished());
                     node_nxt.preintegrator.propagate(inter_imu);
                 }
             }
@@ -236,10 +243,100 @@ bool MyVins::popMatchBuffer()
 
 void MyVins::imuInit()
 {
-
+    // init imu groscope bias 
+    M3T A = M3T::Zero();
+    V3T B = V3T::Zero();
+    V3T res = V3T::Zero();
+    for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    {
+        auto& node = frame_manager.getNodeAt<CameraObserver>(i);
+        auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
+        if (node.is_imufull == false || node_prev.is_imufull == false) continue;
+        Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
+        // V3T t_CitoCj = T_CitoCj.translation();
+        QuaT q_CitoCj = T_CitoCj.unit_quaternion();
+        V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
+        QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
+        M3T dq_dbg = node.preintegrator.getJac().block<3,3>(imu_preintegrate::ImuPreintegration::IDX_R, imu_preintegrate::ImuPreintegration::IDX_BG);
+        M4T qmat = MathUtils::quaLeftMultiMat((q_ItoC * q_CitoCj.conjugate() * q_ItoC.inverse() * q_IitoIj).normalized());
+        M3T tmp = 0.5 * qmat.bottomRightCorner<3,3>() * dq_dbg;
+        V3T b = -qmat.block<3,1>(1,0);
+        A = A + tmp;
+        B = B + b;
+        res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
+    }
+     
+    // std::cout << "res: " <<  res.transpose() << std::endl;
+    V3T result  = A.inverse() * B;
+    std::cout << "Imu bias: " << result.transpose() << std::endl;
+    for (size_t i = 0; i < frame_manager.getNodeSize(); i++)
+    {
+        auto& node = frame_manager.getNodeAt<CameraObserver>(i);
+        node.preintegrator.update(V3T::Zero(), result);
+    }
+    // res.setZero();
+    // for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    // {
+    //     auto& node = frame_manager.getNodeAt<CameraObserver>(i);
+    //     auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
+    //     Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
+    //     QuaT q_CitoCj = T_CitoCj.unit_quaternion();
+    //     V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
+    //     QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
+    //     res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
+    // }
+    // std::cout << "res: " << res.transpose() << std::endl;
 }
 
+void MyVins::visualInertialAlign()
+{
+    std::vector<V3T> vi;
+    V3T g_InC0; Scalar s;
+    Eigen::Matrix<Scalar, -1, -1> A;
+    Eigen::Matrix<Scalar, -1, 1> B;
+    M3T R_ItoC = q_ItoC.toRotationMatrix();
+    
+    for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    {
+        auto& ni = frame_manager.getNodeAt<CameraObserver>(i - 1);
+        auto& nj = frame_manager.getNodeAt<CameraObserver>(i);
+        if (nj.is_imufull == false || ni.is_imufull == false) continue;
+        Sophus::SE3d T_C0toCi = ni.getSE3Position();
+        Sophus::SE3d T_C0toCj = nj.getSE3Position();
+        Scalar dt = nj.preintegrator.getTotalTime();
+        M3T R_IitoC0 = R_ItoC * T_C0toCi.rotationMatrix().transpose();
+        M3T R_C0toIj = T_C0toCj.rotationMatrix() * R_ItoC.transpose();
+        if (i == 1) {
+            // A.conservativeResize(10, 10);
+            // B.conservativeResize(10, Eigen::NoChange);
+            A.conservativeResize(6, 10);
+            B.conservativeResize(6, Eigen::NoChange);
+            A.setZero();
+            B.setZero();
+        }else{
+            A.conservativeResize(A.rows() + 6, A.cols() + 3);
+            B.conservativeResize(B.rows() + 6, Eigen::NoChange);
+            A.bottomRows<6>().setZero();
+            A.rightCols<3>().setZero();
+            B.tail<6>().setZero();
+        }
+        A.block<3,3>(A.rows() - 6, 0) = 0.5 * R_IitoC0 * dt * dt;
+        A.block<3,3>(A.rows() - 3, 0) = R_IitoC0 * dt;
+        A.block<3,1>(A.rows() - 6, 3) = R_IitoC0 * (T_C0toCj.translation() - T_C0toCi.translation());
+        // std::cout << (T_C0toCi.translation()).transpose() << std::endl;
+        A.block<3,3>(A.rows() - 6, A.cols() - 6) = -M3T::Identity() * dt;
+        A.block<3,3>(A.rows() - 3, A.cols() - 6) = -M3T::Identity();
+        A.block<3,3>(A.rows() - 3, A.cols() - 3) = R_IitoC0 * R_C0toIj;
 
+        B.block<3,1>(A.rows() - 6, 0) = nj.preintegrator.getStateVar().head(3) - t_ItoC + R_IitoC0 * R_C0toIj * t_ItoC;
+        B.block<3,1>(A.rows() - 3, 0) = nj.preintegrator.getStateVar().block<3,1>(3,0);
+    }
+    Eigen::JacobiSVD<Eigen::Matrix<Scalar, -1, -1>> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    std::cout << B.transpose() << std::endl;
+    Eigen::VectorXd result = svd.solve(B);
+    std::cout << "result [g_inC0,s]: [" << result.head<4>().transpose() << "]" << std::endl; 
+    std::cout << "g.norm:" << result.head<3>().norm() << std::endl;
+}
 
 void MyVins::init()
 {
@@ -258,22 +355,9 @@ while (true)
         }else{
             RCLCPP_INFO(this->get_logger(), "init structer");
             if (sfm->initStructure()){
-                for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
-                {
-                    auto& node = frame_manager.getNodeAt<CameraObserver>(i);
-                    auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
-                    if (node.is_imufull == false || node_prev.is_imufull == false) continue;
-                    Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
-                    V3T t_CitoCj = T_CitoCj.translation();
-                    QuaT q_CitoCj = T_CitoCj.unit_quaternion();
-                    
-                    V3T t_IitoIj = node.preintegrator.getStateVar().block<3,1>(0,0);
-                    V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
-                    QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
-                    
-                    std::cout << "q_IitoIj: " << (q_ItoC.conjugate() * q_IitoIj * q_ItoC).coeffs().transpose() << std::endl;
-                    std::cout << "q_CitoCj: " << q_CitoCj.coeffs().transpose() << std::endl;
-                }
+                sfm->transformAllFramesToWorld(QuaT::Identity(), V3T::Zero());
+                imuInit();
+                visualInertialAlign();
                 state.initialized = true;
                 break;
             }

@@ -3,7 +3,7 @@
 #include "utils/input/input.hpp"
 #include <sophus/se3.hpp>
 
-namespace imu_preinter{
+namespace imu_preintegrate{
 
 
 
@@ -65,43 +65,30 @@ public:
         IDX_N_BW = 15
     };
 
-    struct PoseVar
+    struct ConstPoseVar
     {
     public:
-        PoseVar()
-        {
-            delete_mark = true;
-            data_pq = new Scalar[7];
-            data_vag = new Scalar[9];
-        }
-        PoseVar(Scalar* var_pq, Scalar* var_vag)
+
+        ConstPoseVar(const Scalar* var_pq, const Scalar* var_vag) 
         {
             data_pq = var_pq;
             data_vag = var_pq;
-            delete_mark = false;
         }
-        ~PoseVar()
-        {
-            if (delete_mark)
-            {
-                delete[] data_pq;
-                delete[] data_vag;
-            }
-        }
-        V3T& p() {return *reinterpret_cast<V3T*>(data_pq);}
-        QuaT& q() {return *reinterpret_cast<QuaT*>(data_pq + 3);}
-        V3T& v() {return *reinterpret_cast<V3T*>(data_vag);}
-        V3T& ba() {return *reinterpret_cast<V3T*>(data_vag + 3);}
-        V3T& bg() {return *reinterpret_cast<V3T*>(data_vag + 6);}
+
+        ~ConstPoseVar(){}
+
+        const V3T& p() const {return *reinterpret_cast<const V3T*>(data_pq);}
+        const QuaT& q() const {return *reinterpret_cast<const QuaT*>(data_pq + 3);}
+        const V3T& v() const {return *reinterpret_cast<const V3T*>(data_vag);}
+        const V3T& ba() const {return *reinterpret_cast<const V3T*>(data_vag + 3);}
+        const V3T& bg() const {return *reinterpret_cast<const V3T*>(data_vag + 6);}
+
+
 
     private:
-        bool delete_mark = true;
-        Scalar* data_pq;
-        Scalar* data_vag;
+        const Scalar* data_pq;
+        const Scalar* data_vag;
     };
-
-
-
 
 
     ImuPreintegration();
@@ -115,19 +102,29 @@ public:
     void propagate(PreInterVar& v);
     void repropagate(const V3T& ba, const V3T& bg);
     void update(const V3T& ba, const V3T& bg);
-    Eigen::Matrix<Scalar, 15,1> evaluate(QuaT& q_i, V3T& p_i, V3T& v_i, V3T& bg_i,  V3T& ba_i,
-                                         QuaT& q_j, V3T& p_j, V3T& v_j, V3T& bg_j,  V3T& ba_j,
+    Eigen::Matrix<Scalar, 15,1> evaluate(const QuaT& q_i, const V3T& p_i, const V3T& v_i, const V3T& bg_i, const V3T& ba_i,
+                                         const QuaT& q_j, const V3T& p_j, const V3T& v_j, const V3T& bg_j, const V3T& ba_j,
+                                         QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr);
+    
+    Eigen::Matrix<Scalar, 15,1> evaluate(const ConstPoseVar& Xi, const ConstPoseVar& Xj,
                                          QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr);
 
-    void computePrevPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<Scalar, 15, 3>& jac,
-                            PoseVar& Xi, PoseVar& Xj,
-                            QuaT* q_ij_corrected = nullptr);
-    void computeBackPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<Scalar, 15, 3>& jac,
-                            PoseVar& Xi, PoseVar& Xj,
-                            QuaT* q_ij_corrected = nullptr);
+    Eigen::Matrix<Scalar, 15, 3> computePrevPoseJacobian(InterDeltaVar P_DX,
+                                                        ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                        QuaT* q_ij_corrected = nullptr);
+    Eigen::Matrix<Scalar, 15, 3> computeBackPoseJacobian(InterDeltaVar P_DX, 
+                                                        ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                        QuaT* q_ij_corrected = nullptr);
+    
+    void complete();
 
     std::vector<PreInterVar>& getImuData(){return imu_src;};
-
+    
+    Eigen::Matrix<Scalar, 15, 15>& getCov(){return cov;}
+    Eigen::Matrix<Scalar, 18, 18>& getNoise(){return noise;}
+    Eigen::Matrix<Scalar, 15, 15>& getJac(){return jac;}
+    Eigen::Matrix<Scalar, 15, 15>& getInfo(){return info_mat;}
+    Scalar getTotalTime(){return total_t;}
 
     Eigen::VectorXd getStateVar()
     {
@@ -141,14 +138,19 @@ public:
         return ret;
     }
 
+
+
+
     V3T getBiasGyroscope(){return bg;}
     V3T getBiasAccel(){return ba;}
 
+private:
     // 积分变量
     V3T p_itok = V3T::Zero(), v_itok = V3T::Zero();
     QuaT q_itok = QuaT::Identity();
     Scalar total_t = 0;
-
+    bool complete_mark = false;
+    Eigen::Matrix<Scalar, 15, 15> info_mat = Eigen::Matrix<Scalar, 15, 15>::Identity();
 
     Eigen::Matrix<Scalar, 15, 15> cov = Eigen::Matrix<Scalar, 15, 15>::Identity();
     Eigen::Matrix<Scalar, 18, 18> noise = Eigen::Matrix<Scalar, 18, 18>::Identity();

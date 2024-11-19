@@ -511,7 +511,7 @@ void MyVinsSFM::globalBAAuto(int begin_idx, int end_idx)
     options.minimizer_type = ceres::TRUST_REGION;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
     options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
-    options.num_threads = 4; 
+    options.num_threads = std::thread::hardware_concurrency(); 
     // options.minimizer_type = ceres::TRUST_REGION;
     // options.line_search_direction_type = ceres::LBFGS;
     // options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
@@ -519,22 +519,22 @@ void MyVinsSFM::globalBAAuto(int begin_idx, int end_idx)
     options.minimizer_progress_to_stdout = true;
 
     // 检查问题的初始状态
-    ceres::Problem::EvaluateOptions eval_options;
-    eval_options.apply_loss_function = true;
-    double total_cost = 0.0;
-    std::vector<double> residuals;
-    ceres::CRSMatrix jacobians;
-    if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, &jacobians)){
-        std::cout << "Initial cost = " << total_cost << std::endl;
-        for (size_t i = 0; i < 18; i++)
-        {
-            std::cout << jacobians.values[i] << " ";
-        }
-        std::cout << std::endl;
+    // ceres::Problem::EvaluateOptions eval_options;
+    // eval_options.apply_loss_function = true;
+    // double total_cost = 0.0;
+    // std::vector<double> residuals;
+    // ceres::CRSMatrix jacobians;
+    // if ( problem->Evaluate(eval_options, &total_cost, &residuals, nullptr, &jacobians)){
+    //     std::cout << "Initial cost = " << total_cost << std::endl;
+    //     for (size_t i = 0; i < 18; i++)
+    //     {
+    //         std::cout << jacobians.values[i] << " ";
+    //     }
+    //     std::cout << std::endl;
          
-    }else{
-        std::cout << "Initial check failed" << std::endl;
-    }
+    // }else{
+    //     std::cout << "Initial check failed" << std::endl;
+    // }
 
 
     // std::cout << "Number of residuals: " << problem->NumResiduals() << std::endl;
@@ -958,18 +958,18 @@ bool MyVinsSFM::initStructure()
         V3T p_in0 = triangulatePoint(R0, R1, observ_data0.head(2), observ_data1.head(2));
         fea.setData(p_in0);
     }
-    vis.visAllNodesWithFeas();
-    // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
-    // vis.visAllFeatures();
-    // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
-    vis.visAllNodesTracjectory();
+    // vis.visAllNodesWithFeas();
+    // // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
+    // // vis.visAllFeatures();
+    // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
+    // vis.visAllNodesTracjectory();
     globalBA(idx_node_begin, idx_node_end);
     // globalBAAuto(idx_node_begin, idx_node_end);
     // globalBAGTSAM(idx_node_begin, idx_node_end);
-    vis.visAllNodesWithFeas();
-    // vis.visAllFeatures();
-    // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
-    vis.visAllNodesTracjectory();
+    // vis.visAllNodesWithFeas();
+    // // vis.visAllFeatures();
+    // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
+    // vis.visAllNodesTracjectory();
 
     return true;
 }
@@ -997,6 +997,10 @@ void MyVinsSFM::transformAllFramesToWorld(QuaT q_ItoC, V3T t_ItoC)
         V3T data = T_W0toC0_hat * data_hat;
         fea.setData(data);
     }
+    vis.visAllNodesWithFeas();
+    // vis.visAllFeatures();
+    // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
+    vis.visAllNodesTracjectory();
 }
 
 } // namespace my_vins

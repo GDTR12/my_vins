@@ -1,7 +1,8 @@
 #include "imuPreintegration.hpp"
 #include "utils/common/math_utils.hpp"
 
-namespace imu_preinter{
+namespace imu_preintegrate{
+
 
 const Eigen::Vector3d gravity(0,0,9.8);
 
@@ -80,13 +81,13 @@ void ImuPreintegration::propagate(PreInterVar& v)
 
     // 中值积分
     V3T a = 0.5 * (q_itok * (lv.a - ba));
-    V3T w_dt = 0.5 * dt * v.w;
+    V3T w = 0.5 * (lv.w - bg + v.w - bg);
+    V3T w_dt = 0.5 * dt * w;
     q_itok = q_itok * QuaT(1, w_dt.x(), w_dt.y(), w_dt.z());
     q_itok.normalize();
     M3T R_j = q_itok.toRotationMatrix();
 
     a = a + 0.5 * (q_itok * (v.a - ba));
-    V3T w = 0.5 * (lv.w - bg + v.w - bg);
 
     p_itok = p_itok + v_itok * dt + 0.5 * a * dtt;
     v_itok = v_itok + a * dt;
@@ -147,13 +148,21 @@ void ImuPreintegration::propagate(PreInterVar& v)
 }
 
 
-Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(QuaT& q_i, V3T& p_i, V3T& v_i, V3T& bg_i,  V3T& ba_i,
-                                                                           QuaT& q_j, V3T& p_j, V3T& v_j, V3T& bg_j,  V3T& ba_j,
-                                                                           QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr)
+Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const ConstPoseVar& Xi, const ConstPoseVar& Xj,
+                                                                           QuaT* q_ij_corrected, V3T* p_ij_corrected, V3T* v_ij_corrected)
+{
+    return evaluate(Xi.q(), Xi.p(), Xi.v(), Xi.bg(), Xi.ba(),
+             Xj.q(), Xj.p(), Xj.v(), Xj.bg(), Xj.ba(),
+             q_ij_corrected, p_ij_corrected, v_ij_corrected);
+}                                                                           
+
+Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const QuaT& qi, const V3T& p_i, const V3T& v_i, const V3T& bg_i, const V3T& ba_i,
+                                                                           const QuaT& qj, const V3T& p_j, const V3T& v_j, const V3T& bg_j,  const V3T& ba_j,
+                                                                           QuaT* q_ij_corrected, V3T* p_ij_corrected, V3T* v_ij_corrected)
 {
     Eigen::Matrix<Scalar, 15, 1> res;
-    q_i.normalize();
-    q_j.normalize();
+    QuaT q_i = qi.normalized();
+    QuaT q_j = qj.normalized();
 
     M3T dq_dbg = jac.block<3,3>(IDX_R, IDX_BG);
 
@@ -163,7 +172,8 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(QuaT&
     M3T dv_dba = jac.block<3,3>(IDX_V, IDX_BA);
     M3T dv_dbg = jac.block<3,3>(IDX_V, IDX_BG);
 
-    QuaT q_ij = (q_ij * QuaT(1, 0.5 * dq_dbg.x(), 0.5 * dq_dbg.y(), 0.5 * dq_dbg.z())).normalized();
+    V3T delta_q = 0.5 * dq_dbg * (bg_i - bg);
+    QuaT q_ij = (q_ij * QuaT(1, delta_q.x(), delta_q.y(), delta_q.z())).normalized();
     V3T p_ij = p_itok + dp_dba * (ba_i - ba) + dp_dbg * (bg_i - bg);
     V3T v_ij = v_itok + dv_dba * (ba_i - ba) + dv_dbg * (bg_i - bg);
 
@@ -186,11 +196,11 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(QuaT&
 }                                     
 
  
-void ImuPreintegration::computePrevPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<ImuPreintegration::Scalar, 15, 3>& jacobian,
-                                                PoseVar& Xi, PoseVar& Xj,
-                                                QuaT* q_ij_corrected = nullptr)
+Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPoseJacobian(InterDeltaVar P_DX, 
+                                                                                            ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                                                            QuaT* q_ij_corrected)
 {
-    jacobian.setZero();
+    Eigen::Matrix<Scalar, 15, 3> jacobian = Eigen::Matrix<Scalar, 15, 3>::Zero();
 
     QuaT qij;
     if (q_ij_corrected != nullptr){
@@ -231,13 +241,14 @@ void ImuPreintegration::computePrevPoseJacobian(InterDeltaVar P_DX, Eigen::Matri
     default:
         break;
     }
+    return jacobian;
 }
 
-void ImuPreintegration::computeBackPoseJacobian(InterDeltaVar P_DX, Eigen::Matrix<ImuPreintegration::Scalar, 15, 3>& jacobian,
-                                                PoseVar& Xi, PoseVar& Xj,
-                                                QuaT* q_ij_corrected = nullptr)
+Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computeBackPoseJacobian(InterDeltaVar P_DX,
+                                                ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                QuaT* q_ij_corrected)
 {
-    jacobian.setZero();
+    Eigen::Matrix<Scalar, 15, 3> jacobian = Eigen::Matrix<Scalar, 15, 3>::Zero();
 
     QuaT qij;
     if (q_ij_corrected != nullptr){
@@ -270,8 +281,14 @@ void ImuPreintegration::computeBackPoseJacobian(InterDeltaVar P_DX, Eigen::Matri
     default:
         break;
     }
+    return jacobian;
 }
 
+void ImuPreintegration::complete()
+{
+    info_mat = Eigen::LLT<Eigen::Matrix<Scalar, 15, 15>>(cov.inverse()).matrixL().transpose();
+    complete_mark = true;
+}
 
 
 }
