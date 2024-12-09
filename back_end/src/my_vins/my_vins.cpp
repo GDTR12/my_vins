@@ -3,6 +3,7 @@
 #include "cv_bridge/cv_bridge.h"
 #include "utils/slam/slam_utils.hpp"
 #include "utils/common/math_utils.hpp"
+#include "utils/common/common_utils.hpp"
 
 namespace my_vins
 {
@@ -39,6 +40,7 @@ MyVins::MyVins()
     V4T distort_mat = Eigen::Map<V4T>(d_mat_vec.data());
     vis = std::make_shared<MyVinsVis>(*this);
     sfm = std::make_shared<MyVinsSFM>(*this, *vis.get(), camera_mat, distort_mat);
+    sldwin = std::make_shared<MyVinsSlideWindow>(&frame_manager);
 
     std::vector<double> q_ItoC_vec, t_ItoC_vec;
     input.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
@@ -108,27 +110,41 @@ void MyVins::imuTopicCallback(const sensor_msgs::msg::Imu::SharedPtr msg)
         msg->linear_acceleration.y,
         msg->linear_acceleration.z
     );
-    
     lock.unlock();
-    cv_ib.notify_one();
+    if (imu_buf.size() > 10)cv_ib.notify_one();
 }
 
 bool MyVins::popImuData()
 {
-    if (idx_nodePutImu >= frame_manager.getNodeSize() - 1) return false;
-    rclcpp::Time t_begin, t_end;
-    auto& node = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu);
-    auto& node_nxt = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu + 1);
-    t_end = node.getTime();
-    if (idx_nodePutImu == 0){
-        t_begin = rclcpp::Time(0, 0, RCL_ROS_TIME);
-    }else{
-        t_begin = frame_manager.getNodeAt(idx_nodePutImu - 1)->getTime();
+    // if (idx_nodePutImu >= frame_manager.getNodeSize() - 1) return false;
+    // rclcpp::Time t_begin, t_end;
+    // auto& node = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu);
+    // auto& node_nxt = frame_manager.getNodeAt<CameraObserver>(idx_nodePutImu + 1);
+    // t_end = node.getTime();
+    // if (idx_nodePutImu == 0){
+    //     t_begin = rclcpp::Time(0, 0, RCL_ROS_TIME);
+    // }else{
+    //     t_begin = frame_manager.getNodeAt(idx_nodePutImu - 1)->getTime();
+    // }
+    int imu_full_num = frame_manager.getValidNodeSize();
+    int total_num = frame_manager.getNodeSize();
+    if (total_num < 3 || imu_full_num > total_num - 2) return false;
+    if (imu_full_num == 0){
+        frame_manager.getNodeAt<CameraObserver>(imu_full_num).is_imufull = true;
+        return false;
     }
+    
+    rclcpp::Time t_begin, t_end;
+    auto& node_prev = frame_manager.getNodeAt<CameraObserver>(imu_full_num - 1);
+    auto& node = frame_manager.getNodeAt<CameraObserver>(imu_full_num);
+    auto& node_nxt = frame_manager.getNodeAt<CameraObserver>(imu_full_num + 1);
+    
+    t_begin = node_prev.getTime();
+    t_end = node.getTime();
 
     std::unique_lock lock(mtx_ib);
     cv_ib.wait(lock, [this](){
-        return !imu_buf.empty();
+        return imu_buf.size() > 10;
     });
     // 有足够的数据
     if (imu_buf.back().t > t_end){
@@ -136,49 +152,55 @@ bool MyVins::popImuData()
         {
             auto data = imu_buf.front();
             auto data_nxt = imu_buf.at(1);
-            if (data.t > t_begin && data.t <= t_end){
+            if (data.t < t_begin){
+                imu_buf.pop_front();
+                continue;
+            } 
+            else if (data.t >= t_begin && data.t <= t_end){
                 imu_preintegrate::PreInterVar inte_var;
                 inte_var.a = data.a;
                 inte_var.w = data.w;
                 inte_var.t = data.t.seconds();
                 node.preintegrator.propagate(inte_var);
                 imu_buf.pop_front();
-            }else if (data_nxt.t > t_end){
-                slam_utils::ImuInterpData data0, data1;
-                data0.time = data.t.seconds();
-                data1.time = data_nxt.t.seconds();
-                data0.w = data.w; data0.a = data.a;
-                data1.w = data_nxt.w; data1.a = data_nxt.a;
-                data0.ba = node.imu_ba; data0.bw = node.imu_bw;
-                data1.ba = node_nxt.imu_ba; data1.bw = node_nxt.imu_bw;
-                
-                auto inter_d = slam_utils::ImuLinearInterp(data0, data1, t_end.seconds());
-                imu_preintegrate::PreInterVar inter_imu;
-                inter_imu.a = inter_d.a;
-                inter_imu.w = inter_d.w;
-                inter_imu.t = t_end.seconds();
-                node.is_imufull = true;
-                // 开始插值
-                if (t_end - data.t > rclcpp::Duration::from_seconds(2e-5)){
-                    node.preintegrator.propagate(inter_imu);
-                }
-                // if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
-                //     node_nxt.preintegrator.init(node_nxt.imu_bw, 
-                //                                 node_nxt.imu_ba,
-                //                                 node.preintegrator.getCov(),
-                //                                 node.preintegrator.getJac(),
-                //                                 node.preintegrator.getNoise());
-                if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
-                    node_nxt.preintegrator.init((V3T() << V3T::Zero()).finished(), 
-                                                (V3T() << V3T::Zero()).finished(),
-                                                (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
-                                                (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
-                                                (Eigen::Matrix<Scalar, 18, 18>() << Eigen::Matrix<Scalar, 18, 18>::Identity()).finished());
-                    node_nxt.preintegrator.propagate(inter_imu);
+                if (data_nxt.t > t_end){
+                    slam_utils::ImuInterpData data0, data1;
+                    data0.time = data.t.seconds();
+                    data1.time = data_nxt.t.seconds();
+                    data0.w = data.w; data0.a = data.a;
+                    data1.w = data_nxt.w; data1.a = data_nxt.a;
+                    data0.ba = node.imu_ba; data0.bw = node.imu_bw;
+                    data1.ba = node_nxt.imu_ba; data1.bw = node_nxt.imu_bw;
+                    
+                    auto inter_d = slam_utils::ImuLinearInterp(data0, data1, t_end.seconds());
+                    imu_preintegrate::PreInterVar inter_imu;
+                    inter_imu.a = inter_d.a;
+                    inter_imu.w = inter_d.w;
+                    inter_imu.t = t_end.seconds();
+                    node.is_imufull = true;
+                    // 开始插值
+                    if (t_end - data.t > rclcpp::Duration::from_seconds(2e-5)){
+                        node.preintegrator.propagate(inter_imu);
+                    }
+                    // if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
+                    //     node_nxt.preintegrator.init(node_nxt.imu_bw, 
+                    //                                 node_nxt.imu_ba,
+                    //                                 node.preintegrator.getCov(),
+                    //                                 node.preintegrator.getJac(),
+                    //                                 node.preintegrator.getNoise());
+                    if (data_nxt.t - t_end > rclcpp::Duration::from_seconds(2e-5)){
+                        node_nxt.preintegrator.init((V3T() << V3T::Zero()).finished(), 
+                                                    (V3T() << V3T::Zero()).finished(),
+                                                    (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
+                                                    (Eigen::Matrix<Scalar, 15, 15>() << Eigen::Matrix<Scalar, 15, 15>::Identity()).finished(),
+                                                    (Eigen::Matrix<Scalar, 18, 18>() << Eigen::Matrix<Scalar, 18, 18>::Identity()).finished());
+                        node_nxt.preintegrator.propagate(inter_imu);
+                    }
+                    break;
                 }
             }
+           
         }
-        idx_nodePutImu ++;
     }
     lock.unlock();
     return true;
@@ -216,23 +238,18 @@ bool MyVins::popMatchBuffer()
         observe(2) = depth;
     }
     int id = result->id;
-    if (id == frame_manager.getNodeSize()){
-        ObserverNode* prev_node;
-        if (id == 0){
-            prev_node = nullptr;
-        }else{
-            prev_node = frame_manager.getNodeAt(id - 1);
-        }
-
+    if (id >= frame_manager.getNodeSize()){
+        ObserverNode* prev_node = (id == 0 || frame_manager.getNodeSize() == 0) ? nullptr : frame_manager.getNodeAt(-1);
         auto buf_data = std::find_if(req_buf.begin(), req_buf.end(), [id](RequestBuf& buf){
             return id == buf.id;
         });
         rclcpp::Time t(buf_data->t);
-        // std::cout.flags(std::ios::fixed);
-        // std::cout.precision(10);
-        // std::cout << "t: " << t.seconds() << std::endl;
-        auto& node = frame_manager.appendAccordingPrev<PointFeature, CameraObserver>(t, observe_data, feas_data, map_prev, prev_node);
-        node.setImage(buf_data->img);
+        CameraObserver* node = frame_manager.appendIfKeyFrame(t, observe_data, feas_data, map_prev, prev_node);
+        if (nullptr != node){
+            node->setImage(buf_data->img);
+        }
+        if (frame_manager.getNodeSize() > 1)vis->showTwoNodeMatches(frame_manager.getNodeSize() - 2, frame_manager.getNodeSize() - 1);
+        // auto& node = frame_manager.appendAccordingPrev<PointFeature, CameraObserver>(t, observe_data, feas_data, map_prev, prev_node);
     }else if(id < frame_manager.getNodeSize()){
         //创建空间点类型,点的观测数据类型,以及观测者
         ObserverNode* prev_node = frame_manager.getNodeAt(id - 1);
@@ -243,7 +260,9 @@ bool MyVins::popMatchBuffer()
 
 void MyVins::imuInit()
 {
-    // init imu groscope bias 
+    common_utils::TimerHelper timer;
+    auto start = timer.start();
+    RCLCPP_DEBUG(this->get_logger(), "[Step]: Imu init");
     M3T A = M3T::Zero();
     V3T B = V3T::Zero();
     V3T res = V3T::Zero();
@@ -266,29 +285,31 @@ void MyVins::imuInit()
         res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
     }
      
-    // std::cout << "res: " <<  res.transpose() << std::endl;
     V3T result  = A.inverse() * B;
-    std::cout << "Imu bias: " << result.transpose() << std::endl;
     for (size_t i = 0; i < frame_manager.getNodeSize(); i++)
     {
         auto& node = frame_manager.getNodeAt<CameraObserver>(i);
         node.preintegrator.update(V3T::Zero(), result);
     }
-    // res.setZero();
-    // for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
-    // {
-    //     auto& node = frame_manager.getNodeAt<CameraObserver>(i);
-    //     auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
-    //     Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
-    //     QuaT q_CitoCj = T_CitoCj.unit_quaternion();
-    //     V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
-    //     QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
-    //     res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
-    // }
-    // std::cout << "res: " << res.transpose() << std::endl;
+    RCLCPP_DEBUG(this->get_logger(), "Imu bias: %s", EFMT(result.transpose()));
+    RCLCPP_DEBUG(this->get_logger(), "Cost time: %.3f ms", timer.end(start));
+#ifdef ENABLE_DEBUG_CODE
+    res.setZero();
+    for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    {
+        auto& node = frame_manager.getNodeAt<CameraObserver>(i);
+        auto& node_prev = frame_manager.getNodeAt<CameraObserver>(i - 1);
+        Sophus::SE3d T_CitoCj(node_prev.getSE3Position().inverse() * node.getSE3Position());
+        QuaT q_CitoCj = T_CitoCj.unit_quaternion();
+        V3T r_IitoIj = node.preintegrator.getStateVar().block<3,1>(6,0);
+        QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
+        res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
+    }
+    RCLCPP_DEBUG(this->get_logger(), "res: %s", EFMT(res.transpose())); 
+#endif
 }
 
-void MyVins::visualInertialAlign()
+bool MyVins::visualInertialAlign()
 {
     std::vector<V3T> vi;
     V3T g_InC0; Scalar s;
@@ -332,10 +353,15 @@ void MyVins::visualInertialAlign()
         B.block<3,1>(A.rows() - 3, 0) = nj.preintegrator.getStateVar().block<3,1>(3,0);
     }
     Eigen::JacobiSVD<Eigen::Matrix<Scalar, -1, -1>> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
-    std::cout << B.transpose() << std::endl;
     Eigen::VectorXd result = svd.solve(B);
-    std::cout << "result [g_inC0,s]: [" << result.head<4>().transpose() << "]" << std::endl; 
+    RCLCPP_DEBUG(this->get_logger(), "g.norm: %s norm: %.3f", EFMT(result.head<3>().transpose()), result.head<3>().norm());
     std::cout << "g.norm:" << result.head<3>().norm() << std::endl;
+    if (fabs(result.head<3>().norm() - 9.8) > 0.8){
+        RCLCPP_ERROR(this->get_logger(), "failed to align camera and imu!");
+        return false;
+    }else{
+        return true;
+    }
 }
 
 void MyVins::init()
@@ -345,6 +371,7 @@ void MyVins::init()
 
 void MyVins::run()
 {
+RCLCPP_INFO(this->get_logger(), "Run:");
 while (true)
 {
     popMatchBuffer();
@@ -357,16 +384,17 @@ while (true)
             if (sfm->initStructure()){
                 sfm->transformAllFramesToWorld(QuaT::Identity(), V3T::Zero());
                 imuInit();
-                visualInertialAlign();
+                if (!visualInertialAlign()){
+                    exit(-1);
+                    continue;
+                }
                 state.initialized = true;
-                break;
             }
         }
-    }else if(!state.marginalized){
-        
-    }else if(!state.extrinsic_calibed){
-
+    }else{
+        sldwin->step();
     }
+    // std::this_thread::sleep_for(1ms);
 }
 }
 

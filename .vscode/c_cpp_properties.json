@@ -23,6 +23,12 @@
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c17",
             "cppStandard": "c++17",
+            "defines": [
+                "MY_MACRO=1",
+                "DEBUG_MODE",
+                "PLATFORM_LINUX",
+                "ENABLE_DEBUG_CODE"
+            ],
             "intelliSenseMode": "linux-gcc-x64",
             "compilerArgs": [
                 ""

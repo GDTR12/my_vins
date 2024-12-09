@@ -201,7 +201,8 @@ public:
     int getFeatureSize(){return feas.size();}
 
     ObserverNode* getNodeAt(int id){
-        assert(nodes.size() > 0 && id < nodes.size() && id >= int(-nodes.size()));
+        // std::cout << nodes.size() << " " << id << std::endl;
+        assert(nodes.size() > 0 && id < int(nodes.size()) && id >= -int(nodes.size()));
         if (id >= 0) return nodes[id].get();
         else return nodes[nodes.size() + id].get();
     }
@@ -210,20 +211,20 @@ public:
     NodeType& getNodeAt(int id){
         // std::cout << ": " << nodes.size() << " :" << id << " : " << int(-nodes.size()) << std::endl;
         // std::cout << bool(nodes.size() > 0) << " "  << bool(id < nodes.size()) << " " << bool(id >= int(-nodes.size())) << std::endl;
-        assert(nodes.size() > 0 && id < nodes.size() && id >= int(-nodes.size()));
+        assert(nodes.size() > 0 && id < int(nodes.size()) && id >= -int(nodes.size()));
         if (id >= 0) return *dynamic_cast<NodeType*>(nodes[id].get());
         else return *dynamic_cast<NodeType*>(nodes[nodes.size() + id].get());
     }
 
 
     Feature* getFeatureAt(int id){
-        assert(feas.size() > 0 && id < feas.size() && id >= int(-feas.size()));
+        assert(feas.size() > 0 && id < int(feas.size()) && id >= -int(feas.size()));
         if (id >= 0) return feas[id].get();
         else return feas[feas.size() + id].get();
     }
     template<typename FeatureType>
     FeatureType& getFeatureAt(int id){
-        assert(feas.size() > 0 && id < feas.size() && id >= int(-feas.size()));
+        assert(feas.size() > 0 && id < int(feas.size()) && id >= -int(feas.size()));
         if (id >= 0) return *dynamic_cast<FeatureType*>(feas[id].get());
         else return *dynamic_cast<FeatureType*>(feas[feas.size() + id].get());
     }
@@ -320,7 +321,7 @@ public:
     }
 
 
-private:
+protected:
     // 维护一个双向查找的 搜索结构
     std::vector<std::unique_ptr<ObserverNode>> nodes;
     std::vector<std::unique_ptr<Feature>> feas;

@@ -4,7 +4,7 @@
 #include "ceres/ceres.h"
 #include "sophus/se3.hpp"
 #include "utils/common/math_utils.hpp"
-#include "utils/common/timer_helper.hpp"
+#include "utils/common/common_utils.hpp"
 // Camera observations of landmarks (i.e. pixel coordinates) will be stored as Point2 (x, y).
 #include <gtsam/geometry/Point2.h>
 
@@ -759,10 +759,10 @@ void MyVinsSFM::globalBAGTSAM(int idx_begin, int idx_end)
     std::cout << "begin solve" << std::endl;
 
 
-    auto start_t = utils_common::TimerHelper::start();
+    auto start_t = common_utils::TimerHelper::start();
     auto optimizer = gtsam::LevenbergMarquardtOptimizer(graph, initialEstimate);
     gtsam::Values result = optimizer.optimize();
-    double elapsed_ms = utils_common::TimerHelper::end(start_t);
+    double elapsed_ms = common_utils::TimerHelper::end(start_t);
 
     // result.print("Final results: \n");
     std::cout << "initial error = " << graph.error(initialEstimate) << std::endl;
@@ -959,7 +959,7 @@ bool MyVinsSFM::initStructure()
         fea.setData(p_in0);
     }
     // vis.visAllNodesWithFeas();
-    // // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
+    // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
     // // vis.visAllFeatures();
     // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     // vis.visAllNodesTracjectory();

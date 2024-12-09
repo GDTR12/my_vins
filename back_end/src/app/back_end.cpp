@@ -14,6 +14,7 @@
 
 int main(int argc, char const *argv[])
 {
+    std::cout << "Back end launched!" << std::endl;
     rclcpp::init(argc, argv);
     auto node = std::make_shared<my_vins::MyVins>();
     rclcpp::spin(node);

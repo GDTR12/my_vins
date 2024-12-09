@@ -1,59 +1,64 @@
 {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "end",
-        "request": "launch",
-        "type": "cppdbg",
-        "MIMode": "gdb",
-        "miDebuggerServerAddress": "localhost:3001",
-        "cwd": "${workspaceFolder}",
-        "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/back_end",
-        // "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/${input:inputValue}",
-        "setupCommands": [
-          {
-            "description": "Enable pretty-printing for gdb",
-            "text": "-enable-pretty-printing",
-            "ignoreFailures": true
-          }
-          
-        ],
-      },
-      {
-        "name": "front",
-        "request": "launch",
-        "type": "cppdbg",
-        "MIMode": "gdb",
-        "miDebuggerServerAddress": "localhost:3000",
-        "cwd": "${workspaceFolder}",
-        "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/front_end",
-        // "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/${input:inputValue}",
-        "setupCommands": [
-          {
-            "description": "Enable pretty-printing for gdb",
-            "text": "-enable-pretty-printing",
-            "ignoreFailures": true
-          }
-          
-        ],
-      },
-    ],
-
-    "compounds": [
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "end",
+      "request": "launch",
+      "type": "cppdbg",
+      "MIMode": "gdb",
+      "miDebuggerServerAddress": "localhost:3000",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/back_end",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "front",
+      "request": "launch",
+      "type": "cppdbg",
+      "MIMode": "gdb",
+      "miDebuggerServerAddress": "localhost:3001",
+      "cwd": "${workspaceFolder}",
+      "program": "${workspaceRoot}/../../install/my_vins/lib/my_vins/front_end",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      "name": "C/C++ Runner: Debug Session",
+      "type": "cppdbg",
+      "request": "launch",
+      "args": [],
+      "stopAtEntry": false,
+      "externalConsole": false,
+      "cwd": "/root/workspace/ros2/src/my_vins/back_end/src/ceres_fgo/imu_factor/imuPreintegration",
+      "program": "/root/workspace/ros2/src/my_vins/back_end/src/ceres_fgo/imu_factor/imuPreintegration/build/Debug/outDebug",
+      "MIMode": "gdb",
+      "miDebuggerPath": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    }
+  ],
+  "compounds": [
     {
       "name": "Debug Both",
-      "configurations": ["end", "front"]
+      "configurations": [
+        "end"
+      ]
     }
   ]
-    // "inputs": [
-    //   {
-    //       "id": "inputValue",
-    //       "type": "pickString",
-    //       "description": "Enter node name:",
-    //       "options": [
-    //         "front_end",
-    //       ]
-    //   }
-    // ]
-  
-  }
+}
