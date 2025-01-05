@@ -5,6 +5,10 @@ from glob import glob
 
 package_name = 'my_vins_frontend'
 
+packages=find_packages()
+# print(f"Packages found: {', '.join(packages)}")
+# print(f"{packages}")
+
 setup(
     name=package_name,
     version='0.0.0',

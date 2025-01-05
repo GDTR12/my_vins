@@ -18,7 +18,7 @@ public:
     // 结束计时并返回耗时(毫秒)
     static double end(const std::chrono::high_resolution_clock::time_point& start_time) {
         auto end_time = std::chrono::high_resolution_clock::now();
-        return std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+        return double(std::chrono::duration_cast<std::chrono::nanoseconds>(end_time - start_time).count()) / 1000000.0f;
     }
 };
 

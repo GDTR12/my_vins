@@ -124,7 +124,6 @@ void MyVinsVis::visAllNodesTracjectory()
         p.header.frame_id = "world";
         p.header.stamp = this->get_clock()->now();
     }
-    std::cout << "path: " << path.poses.size() << std::endl;
     pub_pathmsg->publish(path);
 }
 

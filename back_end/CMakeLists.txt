@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.15.1)
 project(my_vins)
 
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_definitions(-D _DEBUG)
+endif()
+
+# message("${CMAKE_PREFIX_PATH}=================================================")
+# set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} /root/workspace/packages_install)
 find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -8,17 +14,18 @@ find_package(sensor_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(cv_bridge REQUIRED)
-set(g2o_DIR "/root/workspace/packages/g2o/install/lib/cmake/g2o/")
-find_package(g2o REQUIRED)
+# set(g2o_DIR "/root/workspace/packages/g2o/install/lib/cmake/g2o/")
+# find_package(g2o REQUIRED)
 find_package(yaml-cpp REQUIRED)
 find_package(my_vins_msg REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(fmt REQUIRED)
+find_package(GTest REQUIRED)
 find_package(Ceres REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 find_package(TIFF REQUIRED)
 
-set(GTSAM_DIR "/root/workspace/packages/gtsam/install_4/lib/cmake/GTSAM")
+# set(GTSAM_DIR "/root/workspace/packages/gtsam/install_4/lib/cmake/GTSAM")
 find_package(GTSAM REQUIRED)
 # find_package(pybind11 REQUIRED)
 # set(PYTHON_PATH "/root/miniconda3/envs/ros2")
@@ -31,6 +38,10 @@ find_package(GTSAM REQUIRED)
 # message("PYTHON_LIBS_DIRS: ${PYTHON_LIBS_DIRS}")
 # message("PYTHON_INLCUDE_DIRS: ${PYTHON_INLCUDE_DIRS}")
 # message("PYTHON_LIBS: ${PYTHON_LIBS}")
+
+# if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+#   add_definitions()
+# endif()
 
 message("opencv: ${OpenCV_DIR}")
 message("libs: ${OpenCV_LIBS}")
@@ -71,7 +82,7 @@ set(MY_PROJECT_LIBS
 set(AMENT_TARGET_DEPS
   "rclcpp"
   "Eigen3"
-  "g2o"
+  # "g2o"
   "sensor_msgs"
   "nav_msgs"
   "my_vins_msg"

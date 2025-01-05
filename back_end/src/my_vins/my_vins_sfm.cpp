@@ -503,10 +503,6 @@ void MyVinsSFM::globalBAAuto(int begin_idx, int end_idx)
     // {
     //     std::cout << p_param_l[i].transpose() << std::endl;
     // }
-    
-
-    std::cout << "begin solve" << std::endl;
-
     ceres::Solver::Options options;
     options.minimizer_type = ceres::TRUST_REGION;
     options.trust_region_strategy_type = ceres::LEVENBERG_MARQUARDT;
@@ -632,7 +628,6 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
             problem->AddResidualBlock(cost_func, new ceres::CauchyLoss(50), res_associated_param);
         }
     }
-    std::cout << "begin solve" << std::endl;
 
     ceres::Solver::Options options;
     // options.minimizer_type = ceres::TRUST_REGION;
@@ -640,10 +635,14 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
     // options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
     options.linear_solver_type = ceres::SPARSE_SCHUR;
     options.num_threads = 1; 
+    #ifdef _DEBUG
     options.minimizer_progress_to_stdout = true;
+    #endif
     options.num_threads = std::thread::hardware_concurrency();
 
     // 检查问题的初始状态
+#ifdef _DEBUG
+    
     ceres::Problem::EvaluateOptions eval_options;
     eval_options.apply_loss_function = true;
     double total_cost = 0.0;
@@ -660,10 +659,13 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
     }else{
         std::cout << "Initial check failed" << std::endl;
     }
+#endif
 
     ceres::Solver::Summary summary;
     ceres::Solve(options, problem.get(), &summary);
+#ifdef _DEBUG
     std::cout << summary.BriefReport() << std::endl;
+#endif
 
     for (auto& data_p : p_param_l)
     {
@@ -756,7 +758,6 @@ void MyVinsSFM::globalBAGTSAM(int idx_begin, int idx_end)
             );
         }
     }
-    std::cout << "begin solve" << std::endl;
 
 
     auto start_t = common_utils::TimerHelper::start();
@@ -850,9 +851,9 @@ bool MyVinsSFM::initStructure()
         idx_node_end = fea_manager.getNodeSize() - 1;
         break;
     }
-    
+#ifdef _DEBUG 
     std::cout << "idx begin:" << idx_node_begin << std::endl; 
-
+#endif
     // 重建其他的帧
     // 求解 begin + 1 到 end - 2 的位姿
     for (size_t i = idx_node_begin + 1; i < idx_node_end; i++)

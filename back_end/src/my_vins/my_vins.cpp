@@ -291,9 +291,9 @@ void MyVins::imuInit()
         auto& node = frame_manager.getNodeAt<CameraObserver>(i);
         node.preintegrator.update(V3T::Zero(), result);
     }
-    RCLCPP_DEBUG(this->get_logger(), "Imu bias: %s", EFMT(result.transpose()));
-    RCLCPP_DEBUG(this->get_logger(), "Cost time: %.3f ms", timer.end(start));
-#ifdef ENABLE_DEBUG_CODE
+    RCLCPP_INFO(this->get_logger(), "Imu bias: %s", EFMT(result.transpose()));
+    RCLCPP_INFO(this->get_logger(), "Cost time: %.6f ms", timer.end(start));
+#ifdef _DEBUG
     res.setZero();
     for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
     {
@@ -305,7 +305,7 @@ void MyVins::imuInit()
         QuaT q_IitoIj = Sophus::SO3d::exp(r_IitoIj).unit_quaternion();
         res = res + (q_ItoC.conjugate() * q_IitoIj * q_ItoC * q_CitoCj.conjugate()).vec();
     }
-    RCLCPP_DEBUG(this->get_logger(), "res: %s", EFMT(res.transpose())); 
+    RCLCPP_INFO(this->get_logger(), "res: %s", EFMT(res.transpose())); 
 #endif
 }
 
@@ -354,8 +354,7 @@ bool MyVins::visualInertialAlign()
     }
     Eigen::JacobiSVD<Eigen::Matrix<Scalar, -1, -1>> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
     Eigen::VectorXd result = svd.solve(B);
-    RCLCPP_DEBUG(this->get_logger(), "g.norm: %s norm: %.3f", EFMT(result.head<3>().transpose()), result.head<3>().norm());
-    std::cout << "g.norm:" << result.head<3>().norm() << std::endl;
+    RCLCPP_INFO(this->get_logger(), "g: %s norm: %.3f", EFMT(result.head<3>().transpose()), result.head<3>().norm());
     if (fabs(result.head<3>().norm() - 9.8) > 0.8){
         RCLCPP_ERROR(this->get_logger(), "failed to align camera and imu!");
         return false;
