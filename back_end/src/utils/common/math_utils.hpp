@@ -138,94 +138,79 @@ Eigen::Matrix<Scalar, 4, 1> QuaSubtraction(const Eigen::Quaternion<Scalar>& qua0
 
 template<typename Scalar = double>
 Eigen::Quaternion<Scalar> quaExp(Eigen::Quaternion<Scalar> q, Scalar t){
-  // q.normalize();
-  // Scalar theta = acos(q.w());
-  // theta = t * theta;
-  // Scalar ct = cos(theta);
-  // Scalar st = sin(theta);
-  // Eigen::Matrix<Scalar, 3, 1> v = st * q.vec();
-  // Eigen::Quaternion<Scalar> ret(ct, v.x(), v.y(), v.z());
-  // return ret;
+
     Scalar theta = acos(q.w());
     Eigen::Matrix<Scalar, 3, 1> n = q.vec() / sin(theta);
     Scalar alpha = t * theta;
     return Eigen::Quaternion<Scalar>(cos(alpha), n.x() * sin(alpha), n.y() * sin(alpha), n.z() * sin(alpha));
 }
 
-// class SO3Parameterization : public ceres::LocalParameterization {
-// public:
-//     // 流型的维度
-//     typedef double Scalar;
-//     virtual bool Plus(const Scalar* x,  
-//                      const Scalar* delta, 
-//                      Scalar* x_plus_delta) const override {  
-        
-//         Eigen::Map<const Eigen::Matrix<Scalar, 3, 1>> so3(x);
-//         Eigen::Map<const Eigen::Matrix<Scalar, 3, 1>> so3_dalta(delta);
-//         Eigen::Map<Eigen::Matrix<Scalar, 3, 1>> result(x_plus_delta);
-//         result = (Sophus::SO3<Scalar>::exp(so3_dalta) * Sophus::SO3<Scalar>::exp(so3)).log();
-//         return true;
-//     }
+Eigen::Quaterniond deltaQua(const Eigen::Vector3d& delata_theta)
+{
+  return Eigen::Quaterniond(1, delata_theta.x(), delata_theta.y(), delata_theta.z());
+}
 
-//     virtual bool ComputeJacobian(const Scalar* x, Scalar* jacobian) const override {
-//         Eigen::Map<Eigen::Matrix<Scalar, 3, 3, Eigen::RowMajor>> J(jacobian);
-//         J.setIdentity();  // 近似雅克比
-//         return true;
-//     }
+class PoseEigenQuaRightPerturbManifold : public ceres::Manifold
+{
+public:
+    PoseEigenQuaRightPerturbManifold(){};
+    ~PoseEigenQuaRightPerturbManifold(){};
 
-//     // 返回切空间的维度(李代数的维度)
-//     virtual int GlobalSize() const override { return 3; }  // 四元数的维度
-//     virtual int LocalSize() const override { return 3; }   // so3 的维度
-// };
+    virtual bool Plus(const double* x, const double* delta, double* x_plus_delta) const override
+    {
+      Eigen::Map<const Eigen::Vector3d> p(x);
+      Eigen::Map<const Eigen::Quaterniond> q(x + 3);
+      Eigen::Map<const Eigen::Vector3d> dp(delta);
+      Eigen::Map<const Eigen::Vector3d> dq(delta + 3);
+      Eigen::Map<Eigen::Vector3d> rx(x_plus_delta);
+      Eigen::Map<Eigen::Quaterniond> rq(x_plus_delta + 3);
 
+      rx = p + dp;
+      rq = (q * deltaQua(dq)).normalized();
+      return true;
+    }
 
-// // SO3 的李代数流型实现
-// class QuaternionLocalParameter : public ceres::LocalParameterization {
-// public:
-//     // 流型的维度
-//     virtual bool Plus(const double* x,  // 当前估计值 (四元数)
-//                      const double* delta,  // 李代数更新量
-//                      double* x_plus_delta) const override {  // 更新后的结果
-        
-//         Eigen::Map<const Eigen::Quaterniond> q(x);
-//         // delta 是一个 3 维向量,表示 so3 的李代数
-//         Eigen::Map<const Eigen::Vector3d> delta_so3(delta);
-        
-        
-//         // // 将李代数转换为 SO3
-//         // Eigen::Vector3d delta_so3_norm = delta_so3;  
-//         // double delta_so3_norm_value = delta_so3_norm.norm();
-        
-//         Eigen::Quaterniond delta_q = Sophus::SO3d::exp(delta_so3).unit_quaternion();
-//         // if(delta_so3_norm_value > 0.0) {
-//         //     // 指数映射
-//         //     delta_q = Eigen::Quaterniond(
-//         //         Eigen::AngleAxisd(delta_so3_norm_value, delta_so3.normalized()));
-//         // } else {
-//         //     delta_q = Eigen::Quaterniond::Identity();
-//         // }
-        
-//         // 四元数乘法,注意要保持单位性
-//         Eigen::Map<Eigen::Quaterniond> q_plus(x_plus_delta);
-//         q_plus = (q * delta_q).normalized();
-//         return true;
-//     }
+    virtual bool Minus(const double* x, const double* y, double* delta) const  override
+    {
+      Eigen::Map<const Eigen::Vector3d> px(x);
+      Eigen::Map<const Eigen::Quaterniond> qx(x+3);
+      Eigen::Map<const Eigen::Vector3d> py(y);
+      Eigen::Map<const Eigen::Quaterniond> qy(y+3);
+      Eigen::Map<Eigen::Vector3d> dp(delta);
+      Eigen::Map<Eigen::Vector3d> dq(delta);
 
-//     // 计算雅克比矩阵
-//     virtual bool ComputeJacobian(const double* x, double* jacobian) const override {
-//         // SO3 的雅克比矩阵是一个 4x3 的矩阵
-//         Eigen::Map<Eigen::Matrix<double, 4, 3, Eigen::RowMajor>> J(jacobian);
-        
-//         // 这里可以使用右扰动模型计算雅克比
-//         J.setZero();
-//         J.block<3,3>(0,0) = Eigen::Matrix3d::Identity();  // 近似雅克比
-//         return true;
-//     }
+      dp = px - py;      
+      Eigen::Quaterniond dq_ = qy.inverse() * qx;
+      dq_.normalize();
+      dq = dq_.vec();
+      return true;
+    }
 
-//     // 返回切空间的维度(李代数的维度)
-//     virtual int GlobalSize() const override { return 4; }  // 四元数的维度
-//     virtual int LocalSize() const override { return 3; }   // so3 的维度
-// };
+    virtual bool PlusJacobian(const double* x, double* jacobian) const 
+    {
+      Eigen::Map<Eigen::Matrix<double, 7, 6, Eigen::RowMajor>> jac(jacobian);
+      Eigen::Map<const Eigen::Vector3d> p(x);
+      Eigen::Map<const Eigen::Quaterniond> q(x+3);
+      jac.setZero();
+      jac.block<6,6>(0,0).setIdentity();
+      return true;
+    }
 
+    virtual bool MinusJacobian(const double* x, double* jacobian) const
+    {
+      Eigen::Map<Eigen::Matrix<double, 6, 7, Eigen::RowMajor>> jac(jacobian);
+      Eigen::Map<const Eigen::Vector3d> p(x);
+      Eigen::Map<const Eigen::Quaterniond> q(x+3);
+      jac.setZero();
+      jac.block<6,6>(0,0).setIdentity();
+      return true;
+    }
 
-}  // namespace Eigen
+    int AmbientSize() const override { return 7; }
+    int TangentSize() const override { return 6; }
+
+private:
+
+};
+
+} 

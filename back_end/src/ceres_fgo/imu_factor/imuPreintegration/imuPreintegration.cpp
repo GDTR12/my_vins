@@ -220,7 +220,7 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
         break;
     case IDX_R:
         jacobian.block<3,3>(IDX_P, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose() * (Xj.p() - Xi.p() - Xi.v() * total_t + 0.5 * gravity * total_t * total_t));
-        jacobian.block<3,3>(IDX_R, 0) = -(MathUtils::quaLeftMultiMat(qj.conjugate() * qi) * MathUtils::quaLeftMultiMat(qij)).bottomRightCorner<3,3>();
+        jacobian.block<3,3>(IDX_R, 0) = -(MathUtils::quaLeftMultiMat(qj.conjugate() * qi) * MathUtils::quaRightMultiMat(qij)).bottomRightCorner<3,3>();
         jacobian.block<3,3>(IDX_V, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose()* (Xj.v() - Xi.v() + gravity * total_t));
         break;
     case IDX_V:

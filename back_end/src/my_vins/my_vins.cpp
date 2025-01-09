@@ -4,6 +4,7 @@
 #include "utils/slam/slam_utils.hpp"
 #include "utils/common/math_utils.hpp"
 #include "utils/common/common_utils.hpp"
+#include "my_vins_slidewindow.hpp"
 
 namespace my_vins
 {
