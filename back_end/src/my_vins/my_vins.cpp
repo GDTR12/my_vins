@@ -12,27 +12,28 @@ namespace my_vins
 using namespace std::chrono_literals;
 
 MyVins::MyVins()
+:rclcpp::Node("BackEnd")
 {
-    auto& input = slam_utils::ROSParamInput::getInstance();
+    // auto& input = slam_utils::ROSParamInput::getInstance();
     pub_match = this->create_publisher<FeatureMatchPrevRequest>("front/match_prev_request", 1000);
     sub_match = this->create_subscription<FeatureMatchPrevResponse>(
         "front/match_prev_response", 
         1000, 
         std::bind(&MyVins::matchReponseCallback, this, std::placeholders::_1));
     sub_image = this->create_subscription<sensor_msgs::msg::Image>(
-        input.getConfigParam<std::string>("camera_topic"), 
+        param.getConfigParam<std::string>("camera_topic"), 
         1000, 
         std::bind(&MyVins::imageTopicCallback, this, std::placeholders::_1));
 
     sub_imu = this->create_subscription<sensor_msgs::msg::Imu>(
-        input.getConfigParam<std::string>("imu_topic"), 
+        param.getConfigParam<std::string>("imu_topic"), 
         10000,
         std::bind(&MyVins::imuTopicCallback, this, std::placeholders::_1));
 
 
     std::vector<double> c_mat_vec, d_mat_vec;
-    input.getConfigParam<std::vector<double>>("projection_parameters", c_mat_vec);
-    input.getConfigParam<std::vector<double>>("distortion_parameters", d_mat_vec);
+    param.getConfigParam<std::vector<double>>("projection_parameters", c_mat_vec);
+    param.getConfigParam<std::vector<double>>("distortion_parameters", d_mat_vec);
     M3T camera_mat;
     camera_mat << c_mat_vec[0], 0, c_mat_vec[2],
                       0, c_mat_vec[1], c_mat_vec[3],
@@ -44,8 +45,8 @@ MyVins::MyVins()
     sldwin = std::make_shared<MyVinsSlideWindow>(&frame_manager);
 
     std::vector<double> q_ItoC_vec, t_ItoC_vec;
-    input.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
-    input.getConfigParam<std::vector<double>>("extrinsic_param_t", t_ItoC_vec);
+    param.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
+    param.getConfigParam<std::vector<double>>("extrinsic_param_t", t_ItoC_vec);
     q_ItoC = Eigen::Map<Eigen::Quaterniond>(q_ItoC_vec.data());
     q_ItoC.normalize();
     t_ItoC = Eigen::Map<V3T>(t_ItoC_vec.data());
@@ -127,7 +128,7 @@ bool MyVins::popImuData()
     // }else{
     //     t_begin = frame_manager.getNodeAt(idx_nodePutImu - 1)->getTime();
     // }
-    int imu_full_num = frame_manager.getValidNodeSize();
+    int imu_full_num = frame_manager.getIMUFullNodeSize();
     int total_num = frame_manager.getNodeSize();
     if (total_num < 3 || imu_full_num > total_num - 2) return false;
     if (imu_full_num == 0){
@@ -245,7 +246,7 @@ bool MyVins::popMatchBuffer()
             return id == buf.id;
         });
         rclcpp::Time t(buf_data->t);
-        CameraObserver* node = frame_manager.appendIfKeyFrame(t, observe_data, feas_data, map_prev, prev_node);
+        CameraObserver* node = frame_manager.appendIfKeyFrame(t, observe_data, feas_data, result->descriptors, result->dim, map_prev, prev_node);
         if (nullptr != node){
             node->setImage(buf_data->img);
         }
@@ -356,12 +357,47 @@ bool MyVins::visualInertialAlign()
     Eigen::JacobiSVD<Eigen::Matrix<Scalar, -1, -1>> svd(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
     Eigen::VectorXd result = svd.solve(B);
     RCLCPP_INFO(this->get_logger(), "g: %s norm: %.3f", EFMT(result.head<3>().transpose()), result.head<3>().norm());
-    if (fabs(result.head<3>().norm() - 9.8) > 0.8){
+    RCLCPP_INFO(this->get_logger(), "s: %.5f", result(3));
+    g_InC0 = result.head<3>();
+    s = result(3);
+    if (fabs(result.head<3>().norm() - 9.8) > 0.5){
         RCLCPP_ERROR(this->get_logger(), "failed to align camera and imu!");
         return false;
-    }else{
-        return true;
     }
+
+    /* TODO: refine the gravity */
+
+    /* Caculate the rotation of first world frame to IMU frame q_WtoI0 */
+    V3T g_truth(0,0,param.getConfigParam<double>("gravity_norm"));
+    V3T g_inI0 = q_ItoC.toRotationMatrix() * g_InC0;
+    q_WtoI0 = QuaT::FromTwoVectors(g_inI0, g_truth);
+#ifdef _DEBUG
+    RCLCPP_INFO(this->get_logger(), "g truth: %s, transformed g: %s", EFMT(g_truth.transpose()), 
+        EFMT((q_WtoI0.toRotationMatrix() * q_ItoC.toRotationMatrix() * g_InC0).transpose()));
+#endif    
+    Sophus::SE3d T_WtoC0 = Sophus::SE3d(q_WtoI0, V3T::Zero()) * Sophus::SE3d(q_ItoC, t_ItoC);
+    for(size_t i = 0; i < frame_manager.getInitializedNodeSize(); i++)
+    {
+        CameraObserver& node = frame_manager.getNodeAt<CameraObserver>(i);
+        Sophus::SE3d ppose = node.getSE3Position();
+        Sophus::SE3d T_WtoCi = T_WtoC0 * ppose;
+        T_WtoCi.translation() *= s;
+        node.setPosition(T_WtoCi.unit_quaternion(), T_WtoCi.translation());
+    }
+     
+    for (size_t i = 0; i < frame_manager.getFeatureSize(); i++)
+    {
+        PointFeature& fea = frame_manager.getFeatureAt<PointFeature>(i);
+        if (fea.is_initialized()){
+            V4T ppose = (V4T() << fea.getData(), 1.0).finished();
+            V4T pose = T_WtoC0 * ppose;
+            pose *= s;
+            fea.setData(pose.head<3>());
+        }
+    }
+    vis->visAllFeatures();
+    vis->visAllNodesTracjectory();
+    return true;
 }
 
 void MyVins::init()
@@ -380,9 +416,8 @@ while (true)
         if (frame_manager.getNodeSize() < 20 || frame_manager.getNodeSize() % 5 != 0){
             continue;
         }else{
-            RCLCPP_INFO(this->get_logger(), "init structer");
+            RCLCPP_INFO(this->get_logger(), "init structure");
             if (sfm->initStructure()){
-                sfm->transformAllFramesToWorld(QuaT::Identity(), V3T::Zero());
                 imuInit();
                 if (!visualInertialAlign()){
                     exit(-1);

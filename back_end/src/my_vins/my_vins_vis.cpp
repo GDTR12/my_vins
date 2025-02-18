@@ -28,7 +28,7 @@ void MyVinsVis::publishCamera(std::vector<std::pair<M4T, int>>& poses)
     }
 }
 
-void MyVinsVis::publishOneCamera(M4T& pose, int id)
+void MyVinsVis::publishOneCamera(const M4T& pose, int id)
 {
     slam_utils::CameraRvizMsg msg_camera;
     msg_camera.header.frame_id = "world";
@@ -125,6 +125,11 @@ void MyVinsVis::visAllNodesTracjectory()
         p.header.stamp = this->get_clock()->now();
     }
     pub_pathmsg->publish(path);
+    int idx_node = fea_manager.getInitializedNodeSize() - 1;
+    if (idx_node >= 0){
+        CameraObserver& node = fea_manager.getNodeAt<CameraObserver>(idx_node);
+        publishOneCamera(node.getSE3Position().matrix(), idx_node);
+    }
 }
 
 void MyVinsVis::visAllFeatures()
@@ -134,7 +139,9 @@ void MyVinsVis::visAllFeatures()
     for (size_t i = 0; i < fea_manager.getFeatures().size(); i++)
     {
         PointFeature& fea = fea_manager.getFeatureAt<PointFeature>(i);
-        feature_list.push_back(fea.getData());
+        if (fea.is_initialized()){
+            feature_list.push_back(fea.getData());
+        }
     }
     publishPointFeature(feature_list);
 }

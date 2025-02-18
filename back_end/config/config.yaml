@@ -6,6 +6,8 @@ my_vins:
     feas_cust_topic: "/my_vins/fea_cust_track"
     front_end_pcd: "/my_vins/front_end_pcd"
     front_end_camera_pos: "/my_vins/front_end_camera_pos"
+    parallax_threashold: 30.0
+    gravity_norm: 9.81
     distortion_parameters: [-2.917e-01, 8.228e-02, 5.333e-05, -1.578e-04, 0.00]
     projection_parameters: [4.616e+02, 4.603e+02, 3.630e+02, 2.481e+02]
     provide_extrinsic_param: true

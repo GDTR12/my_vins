@@ -7,6 +7,7 @@
 
 #include <math.h>
 #include <Eigen/Dense>
+#include <Eigen/Sparse>
 #include <sophus/so3.hpp>
 #include <ceres/ceres.h>
 
@@ -144,10 +145,10 @@ Eigen::Quaternion<Scalar> quaExp(Eigen::Quaternion<Scalar> q, Scalar t){
     Scalar alpha = t * theta;
     return Eigen::Quaternion<Scalar>(cos(alpha), n.x() * sin(alpha), n.y() * sin(alpha), n.z() * sin(alpha));
 }
-
-Eigen::Quaterniond deltaQua(const Eigen::Vector3d& delata_theta)
+template<typename Scalar = double>
+Eigen::Quaternion<Scalar> deltaQua(const Eigen::Matrix<Scalar, 3, 1>& delata_theta)
 {
-  return Eigen::Quaterniond(1, delata_theta.x(), delata_theta.y(), delata_theta.z());
+  return Eigen::Quaternion<Scalar>(1, delata_theta.x(), delata_theta.y(), delata_theta.z());
 }
 
 class PoseEigenQuaRightPerturbManifold : public ceres::Manifold
@@ -166,7 +167,7 @@ public:
       Eigen::Map<Eigen::Quaterniond> rq(x_plus_delta + 3);
 
       rx = p + dp;
-      rq = (q * deltaQua(dq)).normalized();
+      rq = (q * deltaQua<double>(dq)).normalized();
       return true;
     }
 
@@ -212,5 +213,24 @@ public:
 private:
 
 };
+Eigen::SparseMatrix<double> ceresCRS2EigenSparse(ceres::CRSMatrix& crs_mat)
+{
+  Eigen::SparseMatrix<double> ret;
+  std::vector<Eigen::Triplet<double>> triplets;
+  for (int row = 0; row < crs_mat.rows.size() - 1; row++)
+  {
+    int begin_idx = crs_mat.rows[row];
+    int end_idx = crs_mat.rows[row + 1];
+    for (int i = begin_idx; i < end_idx; i++)
+    {
+      double value = crs_mat.values[i];
+      int col = crs_mat.cols[i];
+      Eigen::Triplet<double> trip(row, col, value);
+      triplets.push_back(trip);
+    }
+  }
+  ret.setFromTriplets(triplets.begin(), triplets.end());
+  return ret;
+}
 
 } 

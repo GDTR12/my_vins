@@ -31,7 +31,7 @@ public:
 
     void publishCamera(std::vector<std::pair<M4T, int>>& poses);
 
-    void publishOneCamera(M4T& poses, int id);
+    void publishOneCamera(const M4T& poses, int id);
 
     void publishPointFeature(std::vector<V3T>& feas);
 private:

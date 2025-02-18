@@ -41,7 +41,7 @@ bool VisMeas::Evaluate(double const* const* params, double *residuals, double **
     Eigen::Map<const Eigen::Matrix<double, 3, 1>> tj(params[1]);
     Eigen::Map<const Eigen::Matrix<double, 3, 1>> t_ItoC(params[2]);
     double inv_depth = *params[3];
-    Eigen::Map<const Eigen::Matrix<double, 3, 1>> res(residuals);
+    Eigen::Map<Eigen::Matrix<double, 2, 1>> res(residuals);
 
     M3T R1, R2, R3, R2T, R3T;
     V3T p1, p2, p3;
@@ -86,11 +86,11 @@ bool VisMeas::Evaluate(double const* const* params, double *residuals, double **
             jac.block<2,1>(0,6).setZero();
         }
         if (jacobians[3] != nullptr){
-            Eigen::Map<Eigen::Matrix<double, 2, 1, Eigen::RowMajor>> jac(jacobians[3]);
+            Eigen::Map<V2T> jac(jacobians[3]);
             jac = reduce * R3T * R2T * R1 * R3 * pi;
         }
     }
-
+    return true;
 }
 
 

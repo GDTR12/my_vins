@@ -57,7 +57,9 @@ public:
 
     void globalBAGTSAM(int idx_begin, int idx_end);
 
-    void transformAllFramesToWorld(QuaT q_wtob, V3T t_wtob);
+    void transformAllFramesToC0();
+
+    bool solveNewFrameAt(int idx_node);
 
 private:
     M3T camera_mat;

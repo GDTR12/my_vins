@@ -13,6 +13,7 @@
 #include "ceres_fgo/imu_factor/imuPreintegration/imuPreintegration.hpp"
 #include "my_vins_feature.hpp"
 #include "my_vins_slidewindow.hpp"
+#include "my_vins_param.hpp"
 
 namespace my_vins
 {
@@ -21,21 +22,11 @@ using namespace std::chrono_literals;
 using namespace my_vins_msg::msg;
 
 
-class MyVinsParamServer: public rclcpp::Node{
-private:
-public:
-    const std::string namesp = "MyVins";
-    int WINDOW_SIZE = 10;
-    float parallax_threashold = 40;
-    MyVinsParamServer():rclcpp::Node("MyVins"){
-        this->declare_parameter(namesp + "/" + "max_cnt", WINDOW_SIZE);
-        this->declare_parameter(namesp + "/" + "pallax_threashold", parallax_threashold);
-    }
-};
+
 
 class MyVinsSFM;
 
-class MyVins : public MyVinsParamServer
+class MyVins : public rclcpp::Node
 {
 public:
     struct State{
@@ -90,6 +81,8 @@ private:
     std::shared_ptr<MyVinsSFM> sfm;
     std::shared_ptr<MyVinsVis> vis;
     std::shared_ptr<MyVinsSlideWindow> sldwin;
+    MyVinsParamServer& param = MyVinsParamServer::getInstance();
+    QuaT q_WtoI0 = QuaT::Identity();
 
     State state;
     QuaT q_ItoC = QuaT::Identity();

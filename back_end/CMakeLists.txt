@@ -1,13 +1,15 @@
 cmake_minimum_required(VERSION 3.15.1)
 project(my_vins)
 
+include(${CMAKE_CURRENT_LIST_DIR}/../conan_cmake/conan_toolchain.cmake)
+include_directories(${CMAKE_INCLUDE_PATH})
+
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_definitions(-D _DEBUG)
 endif()
 
 # message("${CMAKE_PREFIX_PATH}=================================================")
 # set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} /root/workspace/packages_install)
-find_package(PCL REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)

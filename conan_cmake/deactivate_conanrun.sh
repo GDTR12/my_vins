@@ -1,0 +1,1 @@
+. "/root/workspace/ros2/src/my_vins/conan_cmake/deactivate_conanrunenv-debug-x86_64.sh"

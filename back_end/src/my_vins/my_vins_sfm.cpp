@@ -808,9 +808,9 @@ bool MyVinsSFM::initStructure()
         CameraObserver& node_back = *dynamic_cast<CameraObserver*>(fea_manager.getNodeAt(fea_manager.getNodeSize() - 1));
 
         getMatches(i, fea_manager.getNodeSize() - 1, feas, observe_prev, observe_back, 0);
-        
+        // std::cout << feas.size() << std::endl;
         Scalar pallax = computeParllax(observe_prev, observe_back);
-        if (pallax < vins.parallax_threashold || feas.size() < 20){
+        if (pallax < vins.param.PARALLAX_THREASHOLD || feas.size() < 20){
             continue;
         }
 
@@ -959,6 +959,11 @@ bool MyVinsSFM::initStructure()
         V3T p_in0 = triangulatePoint(R0, R1, observ_data0.head(2), observ_data1.head(2));
         fea.setData(p_in0);
     }
+
+#ifdef _DEBUG
+    std::cout << "Size of feas: " << fea_manager.getFeatureSize() << std::endl;
+    std::cout << "Size of nodes: " << fea_manager.getNodeSize() << std::endl;
+#endif
     // vis.visAllNodesWithFeas();
     // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
     // // vis.visAllFeatures();
@@ -972,16 +977,17 @@ bool MyVinsSFM::initStructure()
     // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     // vis.visAllNodesTracjectory();
 
+    transformAllFramesToC0();
     return true;
 }
 
-void MyVinsSFM::transformAllFramesToWorld(QuaT q_ItoC, V3T t_ItoC)
+void MyVinsSFM::transformAllFramesToC0()
 {
     auto& fea_manager = vins.frame_manager;
     if (fea_manager.getNodeSize() == 0) return;
     auto& front = fea_manager.getNodeAt<CameraObserver>(0);
     Sophus::SE3<Scalar> T_C0_hat(front.getPosition());
-    Sophus::SE3<Scalar> T_W0toC0(q_ItoC, t_ItoC);
+    Sophus::SE3<Scalar> T_W0toC0(QuaT::Identity(), V3T::Zero());
     front.setPosition(T_W0toC0.unit_quaternion(), T_W0toC0.translation());
     Sophus::SE3<Scalar> T_W0toC0_hat = T_W0toC0 * T_C0_hat.inverse(); 
     for(int i = 1; i < fea_manager.getNodeSize(); i++)
@@ -998,10 +1004,27 @@ void MyVinsSFM::transformAllFramesToWorld(QuaT q_ItoC, V3T t_ItoC)
         V3T data = T_W0toC0_hat * data_hat;
         fea.setData(data);
     }
-    vis.visAllNodesWithFeas();
-    // vis.visAllFeatures();
-    // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
-    vis.visAllNodesTracjectory();
+}
+
+
+bool MyVinsSFM::solveNewFrameAt(int idx_node)
+{
+    auto& fea_manager = vins.frame_manager;
+    if (idx_node < fea_manager.getNodeSize()){
+        auto& node = fea_manager.getNodeAt<CameraObserver>(idx_node);
+        std::vector<std::reference_wrapper<PointFeature>> feas_node;
+        std::vector<std::reference_wrapper<PointObservation>> observations;
+        fea_manager.getNodeFeatures(idx_node, observations,feas_node, 1);
+        M4T T_ito0;
+        if (!solvePnP(observations, feas_node, T_ito0)){
+            return false;
+        }
+        Sophus::SE3d T_0toi = Sophus::SE3d(T_ito0).inverse();
+        node.setPosition(T_0toi.unit_quaternion(), T_0toi.translation());
+        return true;
+    }else{
+        return false;
+    }
 }
 
 } // namespace my_vins

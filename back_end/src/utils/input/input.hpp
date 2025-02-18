@@ -58,9 +58,9 @@ private:
 
 
 
-class ROSParamInput : rclcpp::Node
+class ROSParamInput : public rclcpp::Node
 {
-private:
+protected:
     ROSParamInput(): rclcpp::Node("RosParam"){}
 public:
     static ROSParamInput& getInstance() {
