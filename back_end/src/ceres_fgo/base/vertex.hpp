@@ -7,7 +7,7 @@ namespace ceres
 {
 class BaseVertex
 {
-private:
+protected:
     Eigen::VectorXd param_;
     std::string id_;
     ceres::Manifold* manifold_;
@@ -16,6 +16,9 @@ public:
         param_.resize(size);
         id_ = id;
     }
+
+    BaseVertex(int size){param_.resize(size);}
+
     ~BaseVertex(){}
 
     void initializeParameter(Eigen::VectorXd param, ceres::Manifold* manifold=nullptr)
@@ -24,15 +27,18 @@ public:
         manifold_ = manifold;
     }
 
-    void setMainfold(ceres::Manifold* manifold)
-    {
-        manifold_ = manifold;
-    }
+    void initializeParameter(Eigen::VectorXd param) {param_ = param;}
 
-    std::string id(){return id_;}
+    void setMainfold(ceres::Manifold* manifold){manifold_ = manifold;}
+
+    std::string& id(){return id_;}
+
     int globalSize(){return param_.size();}
+
     int localSize(){return manifold_ == nullptr ? param_.size() : manifold_->TangentSize();}
+
     Eigen::VectorXd& param(){return param_;}
+
     ceres::Manifold* mainfold(){return manifold_;}
 };
 

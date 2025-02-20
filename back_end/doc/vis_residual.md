@@ -117,6 +117,38 @@ $$
 \end{equation}
 $$
 
+## 关于 $\boldsymbol{\pi}_{-1}(\cdot)$：
+$$
+\begin{equation}
+  \begin{aligned}
+    
+\frac{X}{Z} f_x + c_x = u \\
+\frac{Y}{Z} f_y + c_y = v
 
+  \end{aligned}
+\end{equation}
+$$
+
+要求 $(\frac{X}{\sqrt{X^2 + Y^2 + Z^2}},\frac{Y}{\sqrt{X^2 + Y^2 + Z^2}}, \frac{Z}{\sqrt{X^2 + Y^2 + Z^2}})$, 由上式推出:
+$$
+\begin{equation}
+  \begin{aligned}
+A \triangleq \frac{X^2}{Z^2} = (\frac{u - c_x}{f_x})^2\\
+B \triangleq \frac{Y^2}{Z^2} = (\frac{v-c_y}{f_y})^2
+  \end{aligned}
+\end{equation}
+$$
+因此所求变量为：
+$$
+\begin{equation}
+  \begin{aligned}
+\frac{X}{\sqrt{X^2 + Y^2 + Z^2}} = \pm \frac{1}{\sqrt{1 + \frac{B}{A} + \frac{1}{A}}} \\
+\frac{Y}{\sqrt{X^2 + Y^2 + Z^2}} = \pm \frac{1}{\sqrt{1 + \frac{A}{B} + \frac{1}{B}}}\\
+\frac{Z}{\sqrt{X^2 + Y^2 + Z^2}} = \frac{1}{\sqrt{1 + A + B}}
+  \end{aligned}
+\end{equation}
+$$
+
+其中当 $u-c_x > 0$ 时 第一个等式取正号，第二个等式同理
 
 

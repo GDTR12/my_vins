@@ -23,7 +23,21 @@ public:
         lossf_ = lossf;
         vtxes_ = vtxes;
     }
+    BaseEdge(){}
     ~BaseEdge(){}
+
+    void setId(const std::string id){id_ = id;}
+    void setCostFunction(ceres::CostFunction* costf){costf_ = costf;}
+    void setLossFunction(ceres::LossFunction* lossf){lossf_ = lossf;}
+    void setVertexes(const std::vector<std::string>& vtxes){vtxes_ = vtxes;}
+    void set(std::string id, ceres::CostFunction* costf, ceres::LossFunction* lossf, const std::vector<std::string>& vtxes)
+    {
+        setId(id);
+        setCostFunction(costf);
+        setLossFunction(lossf);
+        setVertexes(vtxes);
+    }
+
     std::string id(){return id_;}
     ceres::ResidualBlockId& resId(){return res_id_;}
     ceres::CostFunction* costFunction(){return costf_;}

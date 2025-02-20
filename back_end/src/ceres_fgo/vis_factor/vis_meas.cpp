@@ -5,11 +5,10 @@
 namespace vis_meas
 {
 
-VisMeas::VisMeas(const V3T& p0, const V3T& p1, const V4T& camera_mat)
+VisMeas::VisMeas(const V3T& p0, const V3T& p1)
 {
     pi = p0;
     pj = p1;
-    c_mat = camera_mat;
     auto b = getSphereTangentOrthonormalBasis(pj);
     b12.block<3, 1>(0, 0) = b.first;
     b12.block<3, 1>(0, 1) = b.second;

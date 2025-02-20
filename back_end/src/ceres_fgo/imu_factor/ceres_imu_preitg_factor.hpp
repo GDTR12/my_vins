@@ -19,7 +19,7 @@ public:
 
     virtual bool Evaluate(double const* const* parameters,
                         double* residuals,
-                        double** jacobians) final
+                        double** jacobians) const override final
     {
         ImuPreintegration::ConstPoseVar Xi(parameters[0], parameters[1]);
         ImuPreintegration::ConstPoseVar Xj(parameters[2], parameters[3]);

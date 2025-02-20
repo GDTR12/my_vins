@@ -41,8 +41,12 @@ public:
         return pose;
     }
 
+    bool optimized(){return is_optimized;}
+    void setOptimizationStatus(bool status){is_optimized = status;}
+
 private:
     V3T pose = V3T::Zero(); 
+    bool is_optimized = false;
 };
 
 class PointObservation : public Observation{
@@ -84,6 +88,21 @@ public:
 
     std::vector<float>& desp(){return dsp;}
 
+    V3T toSphereObservation(const V4T& K)
+    {
+        Scalar fx = K(0), fy = K(1), cx = K(2), cy = K(3);
+        Scalar A = std::pow((x - cx) / fx, 2);
+        Scalar B = std::pow((y - cy) / fy, 2);
+        double sign_x = (x - cx) > 0 ? 1.0 : -1.0;
+        double sign_y = (y - cy) > 0 ? 1.0 : -1.0;
+        
+        return V3T(
+            sign_x / std::sqrt(1.0 + B / A + 1.0 / A),
+            sign_y / std::sqrt(1.0 + A / B + 1.0 / B),
+            1.0 / std::sqrt(1.0 + A + B)
+        );
+    }
+
 private:
 
     Scalar x = 0, y = 0, depth = 0; std::vector<float> dsp;
@@ -102,12 +121,30 @@ public:
         img = img_;
     }
 
+    PointObservation& getObservationAt(int id)
+    {
+        assert(observes.size() > 0 && id < int(observes.size()) && id >= -int(observes.size()));
+        if (id >= 0) return *dynamic_cast<PointObservation*>(observes[id].get());
+        else return *dynamic_cast<PointObservation*>(observes[observes.size() + id].get());
+    }
+
     cv::Mat getImage(){
         return img;
     }
     void setImage(cv::Mat& mat){
         img = mat;
     }
+
+    V3T& vel(){return vel_;}
+
+    V3T& ba(){return imu_ba;}
+    
+    V3T& bg(){return imu_bw;}
+
+    void setEstimateStatus(bool status){is_estimated = status;}
+
+    imu_preintegrate::ImuPreintegration& getPreintegration(){return preintegrator;}
+
 private:
     cv::Mat img;
     int idx_map = -1;
@@ -117,6 +154,7 @@ private:
     bool is_estimated = false;
     V3T imu_bw = V3T::Zero();
     V3T imu_ba = V3T::Zero();
+    V3T vel_ = V3T::Zero();
 
     friend class MyVins;
     friend class MyVinsFeatureManager;
@@ -208,13 +246,13 @@ public:
                 }
             }
         }
-        if (isKeyFrame(lst_obd, observation_data, map_prev)){
+        if (isKeyFrame(lst_obd, observation_data, dyn_map)){
             keyf_updated = true;
+            lst_obd = observation_data;
             node = &appendAccordingPrev<PointFeature, CameraObserver>(t, observation_data, feas_data, dyn_map, prev);
         }else {
             keyf_updated = false;
         }
-        lst_obd = observation_data;
         return node;
     }
 
@@ -251,6 +289,7 @@ private:
     bool keyf_updated = true;
     std::vector<Eigen::Matrix<Scalar, -1, 1>> lst_obd;
     MyVinsParamServer& param = MyVinsParamServer::getInstance();
+    V4T camera_mat;
 };
 
 

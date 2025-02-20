@@ -10,6 +10,7 @@ public:
     int WINDOW_SIZE = 10;
     float PARALLAX_THREASHOLD = 10.1;
     int NOKEYFRAME_THREASHOLD = 4;
+    int NUM_ITERATIONS = 5;
 
     static MyVinsParamServer& getInstance()
     {

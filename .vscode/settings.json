@@ -1,5 +1,6 @@
 {
   "files.associations": {
+    "*.md": "markdown",
     "core": "cpp",
     "iostream": "cpp",
     "cctype": "cpp",
@@ -74,7 +75,9 @@
     "hash_map": "cpp",
     "hash_set": "cpp",
     "slist": "cpp",
-    "*.txx": "cpp"
+    "*.txx": "cpp",
+    "any": "cpp",
+    "filesystem": "cpp"
   },
   "python.pythonPath": "/usr/bin/python3",
   "python.envFile": "${workspaceFolder}/.env",
