@@ -9,8 +9,8 @@ class BaseVertex
 {
 protected:
     Eigen::VectorXd param_;
-    std::string id_;
-    ceres::Manifold* manifold_;
+    std::string id_ = "";
+    ceres::Manifold* manifold_ = nullptr;
 public:
     BaseVertex(std::string id, int size){
         param_.resize(size);

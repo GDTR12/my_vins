@@ -59,7 +59,7 @@ public:
 
     void transformAllFramesToC0();
 
-    bool solveNewFrameAt(int idx_node);
+    bool solveNewFrameAt(int idx_node, const Sophus::SE3d& T_ItoC);
 
 private:
     M3T camera_mat;

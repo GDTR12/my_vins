@@ -76,7 +76,7 @@ void MyVinsVis::visNodesWithFeas(std::vector<int>& indices_nodes)
         if (!node.is_initialized()){
             continue;
         }
-        camera_data.push_back({node.getPosition(), idx});
+        camera_data.push_back({node.getPosition() * Sophus::SE3d(vins.q_ItoC, vins.t_ItoC).matrix(), idx});
         
         for (auto& observe : node.observes){
             PointFeature& fea = fea_manager.getFeatureAt<PointFeature>(observe->idx);
@@ -105,11 +105,11 @@ void MyVinsVis::visAllNodesTracjectory()
     auto& fea_manager = vins.frame_manager;
     path.poses.clear();
     path.header.stamp = this->get_clock()->now();
-    for (int i = 0; i < fea_manager.getNodeSize(); i++){
+    // for (int i = 0; i < fea_manager.getNodeSize(); i++){
+    // for (int i = 0; i < fea_manager.getOptimizedNodeSize(); i++){
+    for (int i = 0; i < fea_manager.getInitializedNodeSize(); i++){
         CameraObserver& node = fea_manager.getNodeAt<CameraObserver>(i);
-        if (!node.is_initialized()){
-            continue;
-        }
+
         M4T pose = node.getPosition();
         auto& p = path.poses.emplace_back();
         QuaT q(pose.block<3,3>(0,0));
@@ -128,7 +128,16 @@ void MyVinsVis::visAllNodesTracjectory()
     int idx_node = fea_manager.getInitializedNodeSize() - 1;
     if (idx_node >= 0){
         CameraObserver& node = fea_manager.getNodeAt<CameraObserver>(idx_node);
-        publishOneCamera(node.getSE3Position().matrix(), idx_node);
+        // publishOneCamera(node.getSE3Position().matrix(), 0);
+        slam_utils::CameraRvizMsg msg_camera;
+        msg_camera.header.frame_id = "world";
+        msg_camera.header.stamp = this->get_clock()->now();
+        msg_camera.id = 0;
+        Sophus::SE3d T_WtoCi = node.getSE3Position() * Sophus::SE3d(vins.q_ItoC, vins.t_ItoC);
+        slam_utils::CameraRvizMsgGenerator msg_gene(T_WtoCi.unit_quaternion(), T_WtoCi.translation());
+        msg_gene.msgMaker(msg_camera);
+        // msg_camera.action = visualization_msgs::msg::Marker::MODIFY;
+        pub_camermsg->publish(msg_camera);
     }
 }
 
@@ -203,4 +212,4 @@ void MyVinsVis::visCamearaNodesBetween(int idx_prev, int idx_back)
     }
 }
 
-} // namespace my_vins
+} // namespace my_vins// 

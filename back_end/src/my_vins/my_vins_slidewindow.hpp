@@ -58,9 +58,10 @@ public:
 
     CameraObserver* node_ = nullptr;
 
-    VelBiasVertex(int idx_node, MyVinsFeatureManager* fm)
+    VelBiasVertex(const std::string& id, int idx_node, MyVinsFeatureManager* fm)
         :ceres::BaseVertex(9)
     {
+        id_ = id;
         fm_ = fm;
         idx_node_ = idx_node;
         node_ = &(fm->getNodeAt<CameraObserver>(idx_node_));
@@ -110,6 +111,7 @@ public:
         fea_ = &(fm->getFeatureAt<PointFeature>(idx_fea_));
         idx_node_ = idx_node;
         idx_ob_ = idx_ob;
+        fetchData(T_ItoC);
     }
 
     double& inv_d(){return param().x();}
@@ -122,6 +124,7 @@ public:
         Sophus::SE3d T_CitoW = T_WtoCi.inverse();
         V4T p_inCi = T_CitoW.matrix() * (V4T() << p_inW, 1.0).finished();
         param().x() = 1.0 / p_inCi.head<3>().norm();
+        // std::cout << "fetch " << idx_fea_ << " in " << idx_node_ << ": "  << param().x() << std::endl;
     }
 
     void updateData(const Sophus::SE3d& T_ItoC, const V4T& camera_mat, Sophus::SE3d T_WtoCi)
@@ -135,6 +138,7 @@ public:
         PointFeature& fea = fm_->getFeatureAt<PointFeature>(idx_fea_);
         fea.setData(p_inW.head<3>());
         fea.setOptimizationStatus(true);
+        // std::cout << "update " << idx_fea_ << " in " << idx_node_ << ": "  << param().x() << std::endl;
     }
 };
 
@@ -145,8 +149,6 @@ public:
 
     ~MyVinsSlideWindow();
 
-    void marginalization();
-
     void step();
 
     MyVinsParamServer& param = MyVinsParamServer::getInstance();
@@ -154,6 +156,9 @@ public:
     ceres::MarginalizationProblem problem;
 
     std::deque<std::pair<std::string, std::string>> win_nodes;
+
+    std::shared_ptr<std::vector<std::string>> new_feas_ = std::make_shared<std::vector<std::string>>();
+    std::shared_ptr<std::vector<std::string>> lst_new_feas_ = std::make_shared<std::vector<std::string>>();
 
 private:
     ceres::BaseVertex* vtx_T_ItoC;

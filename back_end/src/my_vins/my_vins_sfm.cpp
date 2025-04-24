@@ -293,6 +293,7 @@ void MyVinsSFM::triangulate(Eigen::Matrix<Scalar, 3, 4> &Pose0,
         observe_prev[i].get().getData(x0, y0, depth0);
         observe_back[i].get().getData(x1, y1, depth1);
         V3T p_in0 = triangulatePoint(R0, R1, V2T(x0, y0), V2T(x1, y1));
+        if ((R0 * (V4T() << p_in0, 1).finished()).z() < 0.01 || (R1 * (V4T() << p_in0, 1).finished()).z() < 0.01)continue;
         feas[i].get().setData(p_in0);
     }
 }
@@ -625,7 +626,7 @@ void MyVinsSFM::globalBA(int idx_begin, int idx_end)
             res_associated_param.push_back(t_ito0.data());
             res_associated_param.push_back(p.data());
 
-            problem->AddResidualBlock(cost_func, new ceres::CauchyLoss(50), res_associated_param);
+            problem->AddResidualBlock(cost_func, new ceres::CauchyLoss(0.5), res_associated_param);
         }
     }
 
@@ -808,9 +809,9 @@ bool MyVinsSFM::initStructure()
         CameraObserver& node_back = *dynamic_cast<CameraObserver*>(fea_manager.getNodeAt(fea_manager.getNodeSize() - 1));
 
         getMatches(i, fea_manager.getNodeSize() - 1, feas, observe_prev, observe_back, 0);
-        // std::cout << feas.size() << std::endl;
+        // std::cout << "at " << i << "  feas :" << feas.size() << std::endl;
         Scalar pallax = computeParllax(observe_prev, observe_back);
-        if (pallax < vins.param.PARALLAX_THREASHOLD || feas.size() < 20){
+        if (pallax < vins.param.PARALLAX_THREASHOLD * 1 || feas.size() < 20){
             continue;
         }
 
@@ -850,6 +851,14 @@ bool MyVinsSFM::initStructure()
         idx_node_begin = i;
         idx_node_end = fea_manager.getNodeSize() - 1;
         break;
+    }
+    // idx_node_begin =  fea_manager.getNodeSize() / 2 ;
+    for(int i = 0;  i < fea_manager.getNodeSize() - 2; i++){
+        std::vector<std::reference_wrapper<PointFeature>> feas;
+        std::vector<std::reference_wrapper<PointObservation>> observe_prev;
+        std::vector<std::reference_wrapper<PointObservation>> observe_back;
+        getMatches(i, i + 1, feas, observe_prev, observe_back, 0);
+        std::cout << "matched size: " << feas.size() << std::endl;
     }
 #ifdef _DEBUG 
     std::cout << "idx begin:" << idx_node_begin << std::endl; 
@@ -1007,7 +1016,7 @@ void MyVinsSFM::transformAllFramesToC0()
 }
 
 
-bool MyVinsSFM::solveNewFrameAt(int idx_node)
+bool MyVinsSFM::solveNewFrameAt(int idx_node, const Sophus::SE3d& T_ItoC)
 {
     auto& fea_manager = vins.frame_manager;
     if (idx_node < fea_manager.getNodeSize()){
@@ -1015,12 +1024,33 @@ bool MyVinsSFM::solveNewFrameAt(int idx_node)
         std::vector<std::reference_wrapper<PointFeature>> feas_node;
         std::vector<std::reference_wrapper<PointObservation>> observations;
         fea_manager.getNodeFeatures(idx_node, observations,feas_node, 1);
-        M4T T_ito0;
-        if (!solvePnP(observations, feas_node, T_ito0)){
+        // fea_manager.getOptimizedFeaturesOfNode(idx_node, observations,feas_node);
+        M4T T_CitoW;
+        if (!solvePnP(observations, feas_node, T_CitoW)){
             return false;
         }
-        Sophus::SE3d T_0toi = Sophus::SE3d(T_ito0).inverse();
-        node.setPosition(T_0toi.unit_quaternion(), T_0toi.translation());
+        Sophus::SE3d T_WtoIi = Sophus::SE3d::fitToSE3(T_CitoW).inverse() * T_ItoC.inverse();
+        node.setPosition(T_WtoIi.unit_quaternion(), T_WtoIi.translation());
+        std::cout << "qua: " << T_WtoIi.unit_quaternion().coeffs().transpose() << std::endl;
+        std::cout << "trans: " << T_WtoIi.translation().transpose() << std::endl;
+
+        std::vector<std::reference_wrapper<PointFeature>> feas;
+        std::vector<std::reference_wrapper<PointObservation>> observe_prev;
+        std::vector<std::reference_wrapper<PointObservation>> observe_back;
+
+        CameraObserver& node_prev = *dynamic_cast<CameraObserver*>(fea_manager.getNodeAt(idx_node - 1));
+        CameraObserver& node_back = *dynamic_cast<CameraObserver*>(fea_manager.getNodeAt(idx_node));
+
+        getMatches(idx_node - 1, idx_node, feas, observe_prev, observe_back, 2);
+        Eigen::Matrix<Scalar, 3, 4> T_CitoW_ = (node_prev.getSE3Position() * T_ItoC).inverse().matrix3x4();
+        Eigen::Matrix<Scalar, 3, 4> T_CjtoW = (node_back.getSE3Position() * T_ItoC).inverse().matrix3x4();
+        triangulate(T_CitoW_, T_CjtoW, feas, observe_prev, observe_back);
+        for (const auto& a : feas)
+        {
+           std::cout << a.get().getData().norm() << " ";
+        }
+        std::cout << std::endl;
+        
         return true;
     }else{
         return false;

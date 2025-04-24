@@ -1,6 +1,7 @@
 #pragma once
 
 #include <ceres/problem.h>
+#include <ceres/solver.h>
 #include "edge.hpp"
 #include "vertex.hpp"
 
@@ -8,13 +9,13 @@ namespace ceres
 {
 class FGOProblem
 {
-protected:
+public:
     std::shared_ptr<Problem> problem;
     std::unordered_map<std::string, BaseVertex*> vtxes_;
     std::unordered_map<std::string, BaseEdge*> edges_;
     
 public:
-    FGOProblem(){}
+    FGOProblem(){problem = std::make_shared<Problem>();}
     ~FGOProblem()
     {
         for (auto& [idx, edge] : edges_)
@@ -69,6 +70,13 @@ public:
         return nullptr;
     }
 
+    void setVertexConstant(const std::string& idx_vtx)
+    {
+        if (vtxes_.find(idx_vtx) != vtxes_.end()){
+            problem->SetParameterBlockConstant(vtxes_[idx_vtx]->param().data());
+        }
+    }
+
     std::vector<std::string> findVertexAssociatedEdges(const std::string id_vtx, const std::string prefix="")
     {
         std::vector<std::string> ret;
@@ -84,12 +92,44 @@ public:
         return ret;
     }
 
-    /* TODO: implement this function */
-    std::vector<std::string> findVertexAssociatedVertexes(const std::string id_vtx, const std::string prefix="")
+    void findVertexesWithPrefix(std::vector<std::string>& ret, const std::vector<std::string>& prefixes)
     {
-        
+        for (const auto& [id, BaseVertex]: vtxes_)
+        {
+            for (const std::string& prefix: prefixes)
+            {
+                if (id.find(prefix) == 0){
+                    ret.push_back(id);
+                    break;
+                }
+            }
+            
+        }
     }
 
+    std::vector<std::string> findVertexAssociatedVertexes(const std::string id_vtx, const std::string prefix="")
+    {
+        std::vector<std::string> ret;
+        if (vtxes_.find(id_vtx) != vtxes_.end()){
+            for (const auto& [idx_edge, edge] : edges_)
+            {
+                if (edge->findVertex(id_vtx)){
+                    for (const std::string& id : edge->vertexes())
+                    {
+                        if (id_vtx == id) continue;
+                        if (id.find(prefix) == 0){
+                            if (std::find(ret.begin(), ret.end(), id) == ret.end()){
+                                ret.push_back(id);
+                            }
+                        }
+                    }
+                }
+            }
+            
+        }
+        return ret;
+        
+    }
     void removeEdge(const std::string id)
     {
         if (edges_.find(id) != edges_.end()){

@@ -16,6 +16,12 @@ my_vins:
     # in latex $^I_C\mathbf{t}$
     # extrinsic_param_t: [0.06522290954, -0.02070638549, -0.00805460246]
     extrinsic_param_t: [-0.0216401454975,-0.064676986768, 0.00981073058949]
+    imu:
+      acc_n: 0.2         
+      gyr_n: 0.02        
+      acc_w: 0.0002      
+      gyr_w: 2.0e-5      
+
     # camera_topic: "/hikrobot_camera/rgb"
     # imu_topic: "/imu0"
     # feas_topic: "/my_vins/fea_track"

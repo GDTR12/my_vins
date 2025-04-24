@@ -114,7 +114,7 @@ if(${CMAKE_NODE_NAME} STREQUAL "all")
     target_link_libraries(${NODE_FILE} ${MY_PROJECT_LIBS})
     ament_target_dependencies(${NODE_FILE} ${AMENT_TARGET_DEPS})
     rosidl_target_interfaces(${NODE_FILE} ${PROJECT_NAME} "rosidl_typesupport_cpp")
-
+    target_compile_options(${NODE_FILE} PRIVATE "-O3")
     target_compile_features(${NODE_FILE} PUBLIC c_std_99 cxx_std_17)  # Require C99 and C++17
     install(TARGETS ${NODE_FILE} 
       DESTINATION lib/${PROJECT_NAME}) 

@@ -1,5 +1,6 @@
 #include "vis_meas.hpp"
 #include "sophus/se3.hpp"
+#include <iostream>
 
 
 namespace vis_meas
@@ -21,7 +22,7 @@ VisMeas::~VisMeas()
 std::pair<V3T, V3T> VisMeas::getSphereTangentOrthonormalBasis(const V3T& pose) const
 {
     std::pair<V3T, V3T> tangent_base;
-    Eigen::Vector3d a = pj.normalized();
+    Eigen::Vector3d a = pose.normalized();
     Eigen::Vector3d tmp(0, 0, 1);
     if(a == tmp)
         tmp << 1, 0, 0;
@@ -55,25 +56,35 @@ bool VisMeas::Evaluate(double const* const* params, double *residuals, double **
     double depth = 1. / inv_depth;
     using namespace Sophus;
 
+
+    // std::cout << "ti: " << ti.transpose() << std::endl;
+    // std::cout << "tj: " << tj.transpose() << std::endl;
+    // std::cout << "t_ItoC: " << t_ItoC.transpose() << std::endl;
+    // std::cout << "depth: " << depth << std::endl;
+    // std::cout << "pi: " << pi.transpose() << std::endl;
+    // std::cout << "pj: " << pj.transpose() << std::endl;
+    // std::cout << "R2: " << R2 << std::endl;
+
+
     /* 计算残差 */ 
     V3T p_inCi = R_ItoC.transpose() * (Rj.transpose() * (Ri * (R_ItoC * (1.0f / inv_depth) * pi + t_ItoC) + ti - tj) - t_ItoC);
-    res = b12.transpose() * (pj - p_inCi / p_inCi.norm());
+    res = info_mat * b12.transpose() * (pj - p_inCi / p_inCi.norm());
     Eigen::Matrix<double, 2, 3> reduce;
     double pnorm = p_inCi.norm(); 
-    reduce =  - (1.0f / (pnorm * pnorm)) * b12.transpose() * ( pnorm * M3T::Identity() -  p_inCi * p_inCi.transpose() / pnorm);
+    reduce =  - info_mat * (1.0f / (pnorm * pnorm)) * b12.transpose() * ( pnorm * M3T::Identity() -  p_inCi * p_inCi.transpose() / pnorm);
 
     if (jacobians != nullptr){
         if(jacobians[0] != nullptr){
             Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jac(jacobians[0]);
-            jac.block<2,3>(0,0) = reduce * ( -R3T * R2T );
+            jac.block<2,3>(0,0) = reduce * ( R3T * R2T );
             jac.block<2,3>(0,3) = reduce *  ( - R3T * R2T * R1 * \
                             SO3d::hat( depth * R3 * pi + p3) );
             jac.block<2,1>(0,6).setZero();
         }
         if (jacobians[1] != nullptr){
             Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jac(jacobians[1]);
-            jac.block<2,3>(0,0) = reduce * R3T * R2T;
-            jac.block<2,3>(0,3) = reduce * R3T * SO3d::hat(R2T * (R1 * (depth * R2 * pi + p3) + p2 - p1));
+            jac.block<2,3>(0,0) = -reduce * R3T * R2T;
+            jac.block<2,3>(0,3) = reduce * R3T * SO3d::hat(R2T * (R1 * (depth * R3 * pi + p3) + p1 - p2));
             jac.block<2,1>(0,6).setZero();
         }
         if (jacobians[2] != nullptr){
@@ -81,12 +92,12 @@ bool VisMeas::Evaluate(double const* const* params, double *residuals, double **
             jac.block<2,3>(0,0) = reduce * (R3T * R2T * R1 - R3T);
             jac.block<2,3>(0,3) = reduce * (- depth * SO3d::exp(R3T * SO3d(R2T * R1).log()).matrix()\
                  * SO3d::hat(pi) * SO3d::leftJacobianInverse(R3T * SO3d(R2T * R1).log()) * SO3d::hat(R3T * SO3d(R2T * R1).log()) \
-                 + SO3d::hat(R3T * (R2T * R1 * p3 + R2T * p2 - R2T * p1 - p3)));
+                 + SO3d::hat(R3T * (R2T * R1 * p3 + R2T * p1 - R2T * p2 - p3)));
             jac.block<2,1>(0,6).setZero();
         }
         if (jacobians[3] != nullptr){
             Eigen::Map<V2T> jac(jacobians[3]);
-            jac = reduce * R3T * R2T * R1 * R3 * pi;
+            jac = -reduce * R3T * R2T * R1 * R3 * pi * depth * depth;
         }
     }
     return true;

@@ -1,6 +1,7 @@
 #pragma once
 #include "fgo_problem.hpp"
 #include "utils/common/math_utils.hpp"
+#include "utils/common/common_utils.hpp"
 
 namespace ceres
 {
@@ -41,12 +42,23 @@ private:
     MarginlizationFactor(MarginalizationInfo* mar_info)
     {
         mar_info_ = mar_info;
+        for (const std::string& vtx : mar_info_->vertexes())
+        {
+            mutable_parameter_block_sizes()->push_back(mar_info_->vtxes_map_->at(vtx)->globalSize());
+        }
+        set_num_residuals(mar_info_->local_size);
     }
 
 public:
 
     static ceres::CostFunction* create(MarginalizationInfo* mar_info)
     {
+        if (mar_info == nullptr){
+            return nullptr;
+        }
+        if (mar_info->vertexes().size() == 0){
+            return nullptr;
+        }
         return new MarginlizationFactor(mar_info);
     }
 
@@ -54,8 +66,9 @@ public:
     bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
     {
         Eigen::VectorXd dx;
-        dx.resize(mar_info_->global_size);
+        dx.resize(mar_info_->local_size);
         int idx_x0 = 0;
+        int idx_dx = 0;
         auto& vtxes = *mar_info_->vtxes_map_;
         for (int i = 0; i < mar_info_->vertexes().size(); i++)
         {
@@ -67,11 +80,12 @@ public:
             if (nullptr != vtx->mainfold()){
                 vtx->mainfold()->Minus(x.data(), 
                                        x0.data(), 
-                                       dx.segment(idx_x0, local_size).data());
+                                       dx.segment(idx_dx, local_size).data());
             }else{
-                dx.segment(idx_x0, local_size) = x - x0;
+                dx.segment(idx_dx, local_size) = x - x0;
             }
             idx_x0 += global_size;
+            idx_dx += local_size;
         }
         Eigen::Map<Eigen::VectorXd> res(residuals, mar_info_->local_size);
         res = mar_info_->feb_ + mar_info_->fej_ * dx;
@@ -81,12 +95,13 @@ public:
             {
                 auto vtx = vtxes[mar_info_->vertexes()[i]];
                 int global_size = vtx->globalSize();
+                int local_size = vtx->localSize();
                 if (jacobians[i]){
-                    Eigen::Map<Eigen::Matrix<double, -1, -1, Eigen::RowMajor>> jac(jacobians[i]);
+                    Eigen::Map<Eigen::Matrix<double, -1, -1, Eigen::RowMajor>> jac(jacobians[i], mar_info_->fej_.rows(), global_size);
                     jac.setZero();
-                    jac.leftCols(vtx->localSize()) = mar_info_->fej_.middleCols(idx_x0, vtx->localSize());
+                    jac.leftCols(local_size) = mar_info_->fej_.middleCols(idx_x0, local_size);
                 }
-                idx_x0 += global_size;
+                idx_x0 += local_size;
             }
         }
         return true;
@@ -105,14 +120,7 @@ public:
         std::vector<std::string> keeped_vtxes;
         mar_info_->mar_vtxes_.clear();
         mar_info_->setId(id);
-        ceres::CostFunction* costf = MarginlizationFactor::create(mar_info_);
-        mar_info_->setCostFunction(costf);
         mar_info_->setLossFunction(nullptr);
-        BaseEdge* ret = addEdge(mar_info_);
-        if (ret == nullptr){
-            std::cout << "Add marginalization edge failed! id: " << id << std::endl;
-            return nullptr;
-        }
         
         for (const auto [idx, vtx] : vtxes_)
         {
@@ -128,64 +136,80 @@ public:
                 keeped_vtxes.push_back(idx);
             }
         }
-        mar_info_->setVertexes(keeped_vtxes);
+        std::cout << "true mar: " << mar_info_->mar_vtxes_.size() << std::endl;
 
-        ceres::Problem::EvaluateOptions eva_opts;
-        eva_opts.num_threads = mar_threads;
-        eva_opts.apply_loss_function = true;
-        std::vector<double*>& block =  eva_opts.parameter_blocks;
-        for (std::string id : mar_info_->vertexes())
-        {
-            block.push_back(vtxes_[id]->param().data());
-        }
+        // mar_info_->setVertexes(keeped_vtxes);
+        // ceres::CostFunction* costf = MarginlizationFactor::create(mar_info_);
+        // mar_info_->setCostFunction(costf);
 
-        for (std::string id : mar_info_->mar_vtxes_)
-        {
-            block.push_back(vtxes_[id]->param().data());
-        }
+        // ceres::Problem::EvaluateOptions eva_opts;
+        // eva_opts.num_threads = mar_threads;
+        // eva_opts.apply_loss_function = true;
+        // std::vector<double*>& block =  eva_opts.parameter_blocks;
+        // for (std::string id : mar_info_->vertexes())
+        // {
+        //     block.push_back(vtxes_[id]->param().data());
+        // }
+
+        // for (std::string id : mar_info_->mar_vtxes_)
+        // {
+        //     block.push_back(vtxes_[id]->param().data());
+        // }
 
 
-        double cost = 0.0;
-        std::vector<double> residual(problem->NumResiduals());
-        ceres::CRSMatrix J;
-        problem->Evaluate(eva_opts, &cost, &residual, nullptr, &J);
-        Eigen::SparseMatrix<double> crs_J = MathUtils::ceresCRS2EigenSparse(J);
-        Eigen::Map<Eigen::VectorXd> e(residual.data());
-        Eigen::MatrixXd H = crs_J.transpose() * crs_J;
-        Eigen::VectorXd b = crs_J * e;
-        std::cout << "Init H: " << H.rows() << " " << H.cols() << std::endl;
-        std::cout << "Init b: " << b.cols() << std::endl;
+        // double cost = 0.0;
+        // std::vector<double> residual(problem->NumResiduals());
+        // ceres::CRSMatrix J;
+        // problem->Evaluate(eva_opts, &cost, &residual, nullptr, &J);
+        // Eigen::SparseMatrix<double> crs_J = MathUtils::ceresCRS2EigenSparse(J);
+        // Eigen::Map<Eigen::VectorXd> e(residual.data(), residual.size());
+        // Eigen::MatrixXd H = crs_J.transpose() * crs_J;
+        // Eigen::VectorXd b = crs_J.transpose() * e;
+        // std::cout << "Init H: " << H.rows() << " " << H.cols() << std::endl;
+        // std::cout << "Init b: " << b.cols() << std::endl;
         
-        int k = getVertexesParamLocalSize(mar_info_->vertexes());
-        int m = getVertexesParamLocalSize(mar_info_->mar_vtxes_);
+        // int k = getVertexesParamLocalSize(mar_info_->vertexes());
+        // int m = getVertexesParamLocalSize(mar_info_->mar_vtxes_);
 
-        std::cout << "k: " << k << ", m: " << m << std::endl;
+        // std::cout << "k: " << k << ", m: " << m << std::endl;
 
-        Eigen::MatrixXd Hkk = H.block(0, 0, k, k);
-        Eigen::MatrixXd Hkm = H.block(0, k, k, m);
-        Eigen::MatrixXd Hmm = H.block(k, k, m, m);
-        Eigen::VectorXd bk = b.head(k);
-        Eigen::VectorXd bm = b.tail(m);
-        Hmm = 0.5 * (Hmm.transpose() + Hmm);
+        // Eigen::MatrixXd Hkk = H.block(0, 0, k, k);
+        // Eigen::MatrixXd Hkm = H.block(0, k, k, m);
+        // Eigen::MatrixXd Hmm = H.block(k, k, m, m);
+        // Eigen::VectorXd bk = b.head(k);
+        // Eigen::VectorXd bm = b.tail(m);
+        // Hmm = 0.5 * (Hmm.transpose() + Hmm);
+
+        // Eigen::MatrixXd Hmm_inv = Hmm.inverse();
         
-        Eigen::MatrixXd H_ = Hkk - Hkm * Hmm.inverse() * Hkm.transpose();
-        Eigen::VectorXd b_ = bk - Hkm * Hmm.inverse() * bm;
+        // Eigen::MatrixXd H_ = Hkk - Hkm * Hmm_inv * Hkm.transpose();
+        // Eigen::VectorXd b_ = bk - Hkm * Hmm_inv * bm;
         
-        double eps = 1e-8;
-        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes2(H_);
-        Eigen::VectorXd S = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array(), 0));
-        Eigen::VectorXd S_inv = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array().inverse(), 0));
+        // double eps = 1e-8;
+        // Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes2(H_);
+        // Eigen::VectorXd S = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array(), 0));
+        // Eigen::VectorXd S_inv = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array().inverse(), 0));
 
-        Eigen::VectorXd S_sqrt = S.cwiseSqrt();
-        Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
+        // Eigen::VectorXd S_sqrt = S.cwiseSqrt();
+        // Eigen::VectorXd S_inv_sqrt = S_inv.cwiseSqrt();
 
-        mar_info_->fej_ = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
-        mar_info_->feb_ = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b_;
-        std::cout << "FEJ: " << mar_info_->fej_.rows() << " " << mar_info_->fej_.cols() << std::endl;
-        std::cout << "FEB: " << mar_info_->feb_.rows() << " " << mar_info_->feb_.cols() << std::endl;
+        // mar_info_->fej_ = S_sqrt.asDiagonal() * saes2.eigenvectors().transpose();
+        // mar_info_->feb_ = S_inv_sqrt.asDiagonal() * saes2.eigenvectors().transpose() * b_;
+        // std::cout << "FEJ: " << mar_info_->fej_.rows() << " " << mar_info_->fej_.cols() << std::endl;
+        // std::cout << "FEB: " << mar_info_->feb_.rows() << " " << mar_info_->feb_.cols() << std::endl;
+
+
+        // BaseEdge* ret = addEdge(mar_info_);
+        // if (ret == nullptr){
+        //     std::cout << "Add marginalization edge failed! id: " << id << std::endl;
+        //     return nullptr;
+        // }else{
+        //     std::cout << "Add marginalization edge successful!" << std::endl;
+        // }
 
         /* Remove the vertex and edge in the problem */
         for (const std::string id_vtx: mar_info_->mar_vtxes_)
+        // for (const std::string id_vtx: indices)
         {
             removeVertex(id_vtx);
         }

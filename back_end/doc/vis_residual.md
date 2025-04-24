@@ -33,7 +33,7 @@ $$
 带入上式并展开，$\mathcal{P}_l^{c_j}$ 可以表示为：
 
 $$
-    \mathcal{P}_l^{c_j} = l^{-1} R_3^T R_2^T R_1 R_3 \pi + R_3^T R_2^T R_1 p_3 + R_3^T R_2^T p_2 - R_3^T R_2^T p_1 - R_3^T p_3 
+    \mathcal{P}_l^{c_j} = l^{-1} R_3^T R_2^T R_1 R_3 \pi + R_3^T R_2^T R_1 p_3 + R_3^T R_2^T p_1 - R_3^T R_2^T p_2 - R_3^T p_3 
 $$
 
 对$R_1$ 求导(右扰动)：
@@ -49,36 +49,36 @@ $$
 对$p_1$ 求导：
 
 $$
-\frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{p_1}} =  - R_3^T R_2^T
+\frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{p_1}} =  R_3^T R_2^T
 $$
 
 对$R_2$ 求导（右扰动）：
 
 $$
 \begin{aligned}
-右扰动 &\stackrel{p=R_1(l_{-1} R_2 \pi + p_3) + p_2 - p_1}{=} R_3^T (R_2 Exp(\delta{\theta}))^T  p \\
+右扰动 &\stackrel{p=R_1(l_{-1} R_2 \pi + p_3) + p_ - p_2}{=} R_3^T (R_2 Exp(\delta{\theta}))^T  p \\
 &= R_3^T Exp(-\delta{\theta}) R_2^T p \\
 &= R_3^T R_2^T p + R_3^T [R_2^T p]_{\times} \delta{\theta}\\
- \frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{R_2}} &= R_3^T [R_2^T (R_1(l_{-1} R_2 \pi + p_3) + p_2 - p_1)]_{\times}
+ \frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{R_2}} &= R_3^T [R_2^T (R_1(l_{-1} R_2 \pi + p_3) + p_1 - p_2)]_{\times}
 \end{aligned}
 $$
 
 对$p_2$ 求导:
 
 $$
-  \frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{p_2}}   = R_3^T R_2^T
+  \frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{p_2}}   = - R_3^T R_2^T
 $$
 
 对$R_3$ 求导：
 
 $$
-\mathcal{P}_l^{c_j} = l^{-1} R_3^T R_2^T R_1 R_3 \pi + R_3^T(R_2^T R_1 p_3 + R_2^T p_2 - R_2^T p_1 - p_3) \\ 
+\mathcal{P}_l^{c_j} = l^{-1} R_3^T R_2^T R_1 R_3 \pi + R_3^T(R_2^T R_1 p_3 + R_2^T p_1 - R_2^T p_2 - p_3) \\ 
 $$
 
 对右侧部分求偏导很简单(右扰动)：
 
 $$
-右部分 = [R_3^T (R_2^T R_1 p_3 + R_2^T p_2 - R_2^T p_1 - p_3)]_{\times}
+右部分 = [R_3^T (R_2^T R_1 p_3 + R_2^T p_1 - R_2^T p_2 - p_3)]_{\times}
 $$
 
 对于左侧部分使用伴随公式 $ RExp(\theta)R^T = Exp(R\theta)$ 
@@ -94,6 +94,7 @@ $$
 $$
 
 其中 $J_r \triangleq J_r(R_3^T Log(R_2^T R_1))$ 
+
 对 $p_3$ 求导：
 
 $$
@@ -103,7 +104,7 @@ $$
 对 $l$ 求导：
 
 $$
-\frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{l}} = R_3^T R_2^T R_1 R_3 \pi
+\frac{\partial{\mathcal{P}_l^{c_j}}}{\partial{l}} = - R_3^T R_2^T R_1 R_3 \pi \frac{1}{l^2}
 $$
 
 这里说一下为什么都用右扰动，由于我们是在一个流型空间上优化，ceres在优化流型的时候需要对Parameters进行定义在流型上的加法，如果不统一这种加法，就需要在ceres定义多个流型参数,因为之前在对IMU残差进行求导的时候用的是右扰动，所以这里也要用右扰动。

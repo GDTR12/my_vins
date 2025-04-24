@@ -14,15 +14,15 @@ using M3T = Eigen::Matrix3d;
 class VisMeas: public ceres::SizedCostFunction<2, 7, 7, 7, 1>
 {
 public:
-    VisMeas(const V3T& p0, const V3T& p1, const V4T& camera_mat);
+    VisMeas(const V3T& p0, const V3T& p1);
     ~VisMeas();
 
     std::pair<V3T, V3T> getSphereTangentOrthonormalBasis(const V3T& pose) const;
     virtual bool Evaluate(double const* const* params, double *residuals, double **jacobians) const override;
 private:
     V3T pi, pj;
-    V4T c_mat;
     Eigen::Matrix<double, 3, 2> b12;
+    Eigen::Matrix<double, 2, 2> info_mat = 460.0 / 1.5 * Eigen::Matrix2d::Identity();
 };
 
 } // namespace vis_meas

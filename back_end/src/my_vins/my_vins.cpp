@@ -42,7 +42,6 @@ MyVins::MyVins()
     V4T distort_mat = Eigen::Map<V4T>(d_mat_vec.data());
     vis = std::make_shared<MyVinsVis>(*this);
     sfm = std::make_shared<MyVinsSFM>(*this, *vis.get(), camera_mat, distort_mat);
-    sldwin = std::make_shared<MyVinsSlideWindow>(&frame_manager);
 
     std::vector<double> q_ItoC_vec, t_ItoC_vec;
     param.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
@@ -50,6 +49,14 @@ MyVins::MyVins()
     q_ItoC = Eigen::Map<Eigen::Quaterniond>(q_ItoC_vec.data());
     q_ItoC.normalize();
     t_ItoC = Eigen::Map<V3T>(t_ItoC_vec.data());
+
+    sldwin = std::make_shared<MyVinsSlideWindow>(&frame_manager, q_ItoC, t_ItoC);
+
+    double acc_n = param.getConfigParam<double>("imu.acc_n");
+    double acc_w = param.getConfigParam<double>("imu.acc_w");
+    double gyr_n = param.getConfigParam<double>("imu.gyr_n");
+    double gyr_w = param.getConfigParam<double>("imu.gyr_w");
+    imu_preintegrate::ImuPreintegration::initializeNoise(acc_n, acc_w, gyr_n, gyr_w);
 
     thread_main = std::make_shared<std::thread>(&MyVins::run, this);
     pthread_setname_np(thread_main->native_handle(), "back_end_run");
@@ -198,6 +205,7 @@ bool MyVins::popImuData()
                                                     (Eigen::Matrix<Scalar, 18, 18>() << Eigen::Matrix<Scalar, 18, 18>::Identity()).finished());
                         node_nxt.preintegrator.propagate(inter_imu);
                     }
+                    node.preintegrator.complete();
                     break;
                 }
             }
@@ -319,11 +327,11 @@ bool MyVins::visualInertialAlign()
     Eigen::Matrix<Scalar, -1, 1> B;
     M3T R_ItoC = q_ItoC.toRotationMatrix();
     
-    for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    for (size_t i = 1; i < frame_manager.getInitializedNodeSize(); i++)
     {
         auto& ni = frame_manager.getNodeAt<CameraObserver>(i - 1);
         auto& nj = frame_manager.getNodeAt<CameraObserver>(i);
-        if (nj.is_imufull == false || ni.is_imufull == false) continue;
+        // if (nj.is_imufull == false || ni.is_imufull == false) continue;
         Sophus::SE3d T_C0toCi = ni.getSE3Position();
         Sophus::SE3d T_C0toCj = nj.getSE3Position();
         Scalar dt = nj.preintegrator.getTotalTime();
@@ -366,6 +374,54 @@ bool MyVins::visualInertialAlign()
     }
 
     /* TODO: refine the gravity */
+    V3T unit_g = g_InC0 / g_InC0.norm();
+    double g_norm = param.getConfigParam<double>("gravity_norm");
+    auto [b1, b2] = MathUtils::getSphereTangentOrthonormalBasis(unit_g);
+    Eigen::Matrix<Scalar, 3, 2> b;
+    b.leftCols(1) = b1; 
+    b.rightCols(1) = b2;
+    std::cout << b <<std::endl;    
+
+    for (size_t i = 1; i < frame_manager.getNodeSize(); i++)
+    {
+        auto& ni = frame_manager.getNodeAt<CameraObserver>(i - 1);
+        auto& nj = frame_manager.getNodeAt<CameraObserver>(i);
+        if (nj.is_imufull == false || ni.is_imufull == false) continue;
+        Sophus::SE3d T_C0toCi = ni.getSE3Position();
+        Sophus::SE3d T_C0toCj = nj.getSE3Position();
+        Scalar dt = nj.preintegrator.getTotalTime();
+        M3T R_IitoC0 = R_ItoC * T_C0toCi.rotationMatrix().transpose();
+        M3T R_C0toIj = T_C0toCj.rotationMatrix() * R_ItoC.transpose();
+        if (i == 1){
+            A.resize(6, 9);
+            B.resize(6, 1);
+            A.setZero();
+            B.setZero();
+        }else{
+            A.conservativeResize(A.rows() + 6, A.cols() + 3);
+            B.conservativeResize(B.rows() + 6, Eigen::NoChange);
+            A.bottomRows(6).setZero();
+            A.rightCols(3).setZero();
+            B.bottomRows(6).setZero();
+        }
+        A.block<3, 2>(A.rows() - 6, 0) = 0.5 * R_IitoC0 * b * dt * dt;
+        A.block<3, 2>(A.rows() - 3, 0) = R_IitoC0 * b * dt;
+        A.block<3, 1>(A.rows() - 6, 2) = R_IitoC0 * (T_C0toCj.translation() - T_C0toCi.translation());
+        A.block<3,3>(A.rows() - 6, A.cols() - 6) = -M3T::Identity() * dt;
+        A.block<3,3>(A.rows() - 3, A.cols() - 6) = -M3T::Identity();
+        A.block<3,3>(A.rows() - 3, A.cols() - 3) = R_IitoC0 * R_C0toIj;
+
+        B.block<3,1>(A.rows() - 6, 0) = nj.preintegrator.getStateVar().head(3) - t_ItoC + R_IitoC0 * R_C0toIj * t_ItoC
+                                        + 0.5 * R_IitoC0 * unit_g * dt * dt * g_norm;
+        B.block<3,1>(A.rows() - 3, 0) = nj.preintegrator.getStateVar().block<3,1>(3,0) - R_IitoC0 * unit_g * dt * g_norm;
+    }
+    Eigen::JacobiSVD<Eigen::Matrix<Scalar, -1, -1>> svd2(A, Eigen::ComputeThinU | Eigen::ComputeThinV);
+    Eigen::VectorXd result2 = svd2.solve(B);
+    g_InC0 = g_norm * unit_g +  b * result2.head(2);
+    // s = result2(2);
+    RCLCPP_INFO(this->get_logger(), "refined g: %s norm: %.3f", EFMT(g_InC0.transpose()), g_InC0.norm());
+    RCLCPP_INFO(this->get_logger(), "refined s: %.5f", result2(2));
+
 
     /* Caculate the rotation of first world frame to IMU frame q_WtoI0 */
     V3T g_truth(0,0,param.getConfigParam<double>("gravity_norm"));
@@ -380,9 +436,14 @@ bool MyVins::visualInertialAlign()
     {
         CameraObserver& node = frame_manager.getNodeAt<CameraObserver>(i);
         Sophus::SE3d ppose = node.getSE3Position();
+        ppose.translation() *= s;
         Sophus::SE3d T_WtoCi = T_WtoC0 * ppose;
-        T_WtoCi.translation() *= s;
-        node.setPosition(T_WtoCi.unit_quaternion(), T_WtoCi.translation());
+        // T_WtoCi.translation() *= s;
+        Sophus::SE3d T_WtoIi = T_WtoCi * Sophus::SE3d(q_ItoC, t_ItoC).inverse();
+        node.setPosition(T_WtoIi.unit_quaternion(), T_WtoIi.translation());
+
+        node.vel() =  result.segment<3>(4 + i * 3);
+        std::cout << "vel_" << i << ": " << result.segment<3>(3 + i * 3).transpose() << " " << std::endl;
     }
      
     for (size_t i = 0; i < frame_manager.getFeatureSize(); i++)
@@ -419,15 +480,34 @@ while (true)
             RCLCPP_INFO(this->get_logger(), "init structure");
             if (sfm->initStructure()){
                 imuInit();
+                // vis->visAllFeatures();
+                // vis->visAllNodesTracjectory();
+                // std::this_thread::sleep_for(5s);
                 if (!visualInertialAlign()){
                     exit(-1);
-                    continue;
                 }
+                // exit(0);
+                // vis->visAllFeatures();
+                // vis->visAllNodesWithFeas();
                 state.initialized = true;
             }
         }
     }else{
+
+        int idx_solve = frame_manager.getInitializedNodeSize();
+        std::cout << "new frame at " << idx_solve << std::endl;
+
+        if (idx_solve < frame_manager.getNodeSize()){
+            CameraObserver& node = frame_manager.getNodeAt<CameraObserver>(idx_solve);
+            CameraObserver& prev_node = frame_manager.getNodeAt<CameraObserver>(idx_solve - 1);
+            if (!sfm->solveNewFrameAt(idx_solve, Sophus::SE3d(q_ItoC, t_ItoC))){
+                node.setPosition(prev_node.getSE3Position().unit_quaternion(), prev_node.getSE3Position().translation());
+                std::cout << " init failed" << std::endl;
+            }
+        }
         sldwin->step();
+        vis->visAllFeatures();
+        vis->visAllNodesTracjectory();
     }
     // std::this_thread::sleep_for(1ms);
 }

@@ -6,8 +6,26 @@ namespace imu_preintegrate{
 
 const Eigen::Vector3d gravity(0,0,9.8);
 
+bool ImuPreintegration::noise_initialized = false;
+double ImuPreintegration::ACC_N = 1e-1;
+double ImuPreintegration::ACC_W = 1e-2;
+double ImuPreintegration::GYR_N = 1e-4;
+double ImuPreintegration::GYR_W = 1e-5;
+
 ImuPreintegration::ImuPreintegration()
 {
+    if (noise_initialized){
+        noise.setZero();
+        noise.block<3, 3>(0, 0) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
+        noise.block<3, 3>(3, 3) =  (GYR_N * GYR_N) * Eigen::Matrix3d::Identity();
+        noise.block<3, 3>(6, 6) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
+        noise.block<3, 3>(9, 9) =  (GYR_N * GYR_N) * Eigen::Matrix3d::Identity();
+        noise.block<3, 3>(12, 12) =  (ACC_W * ACC_W) * Eigen::Matrix3d::Identity();
+        noise.block<3, 3>(15, 15) =  (GYR_W * GYR_W) * Eigen::Matrix3d::Identity();
+    }else{
+        std::cerr << "The Imu noise wasn't set." << std::endl;
+        throw std::runtime_error("IMU noise parameters not initialized.");
+    }
 }
 
 ImuPreintegration::~ImuPreintegration()
@@ -59,9 +77,9 @@ void ImuPreintegration::init(V3T& bg_,
 {
     bg = bg;
     ba = ba;
-    cov = cov_;
+    // cov = cov_;
     jac = jac_;
-    noise = noise_;
+    // noise = noise_;
 }
 
 void ImuPreintegration::propagate(PreInterVar& v)
@@ -104,11 +122,11 @@ void ImuPreintegration::propagate(PreInterVar& v)
 
     F.setIdentity(); G.setZero();
     // f_12
-    F.block<3,3>(IDX_P,IDX_R) = - 0.25 * dtt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
+    F.block<3,3>(IDX_P,IDX_R) = - 0.25 * dtt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w * dt));
     // f_15
     F.block<3,3>(IDX_P,IDX_BG) = 0.25 * dttt * R_hat_aj;
     // f_32
-    F.block<3,3>(IDX_V,IDX_R) = - 0.5 * dt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w));
+    F.block<3,3>(IDX_V,IDX_R) = - 0.5 * dt * (R_hat_ai + R_hat_aj * (M3T::Identity() - hat_w * dt));
     // f_35
     F.block<3,3>(IDX_V,IDX_BG) = 0.5 * dtt * R_hat_aj;
 
@@ -145,6 +163,9 @@ void ImuPreintegration::propagate(PreInterVar& v)
 
     cov = F * cov * F.transpose() + G * noise * G.transpose();
     jac = F * jac;
+    // std::setprecision(4);
+    // std::cout << "cov: " << std::scientific << cov << std::endl;
+    // std::cout << "V: " << G << std::endl;
 }
 
 
@@ -173,15 +194,19 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const
     M3T dv_dbg = jac.block<3,3>(IDX_V, IDX_BG);
 
     V3T delta_q = 0.5 * dq_dbg * (bg_i - bg);
-    QuaT q_ij = (q_ij * QuaT(1, delta_q.x(), delta_q.y(), delta_q.z())).normalized();
+    QuaT q_ij = (q_itok * QuaT(1, delta_q.x(), delta_q.y(), delta_q.z())).normalized();
     V3T p_ij = p_itok + dp_dba * (ba_i - ba) + dp_dbg * (bg_i - bg);
     V3T v_ij = v_itok + dv_dba * (ba_i - ba) + dv_dbg * (bg_i - bg);
 
-    res.head(IDX_P) = q_i.conjugate().toRotationMatrix() * (p_j - p_i - v_i * total_t + 0.5 * gravity * total_t * total_t) - p_ij;
-    res.head(IDX_R) = 2 * (q_ij.conjugate() * (q_i.conjugate() * q_j)).vec();
-    res.head(IDX_V) = q_i.conjugate() * (v_j - v_i + gravity * total_t) - v_ij;
-    res.head(IDX_BA) = ba_j - ba_i;
-    res.head(IDX_BG) = bg_j - bg_i;
+    // std::cout << "p_ij: "  << p_ij.transpose() <<std::endl;
+    // std::cout << "v_ij: "  << v_ij.transpose() <<std::endl;
+    // std::cout << "q_ij: "  << q_ij.coeffs().transpose() <<std::endl;
+
+    res.segment<3>(IDX_P) = q_i.conjugate().toRotationMatrix() * (p_j - p_i - v_i * total_t + 0.5 * gravity * total_t * total_t) - p_ij;
+    res.segment<3>(IDX_R) = 2 * (q_ij.conjugate() * (q_i.conjugate() * q_j)).vec();
+    res.segment<3>(IDX_V) = q_i.conjugate() * (v_j - v_i + gravity * total_t) - v_ij;
+    res.segment<3>(IDX_BA) = ba_j - ba_i;
+    res.segment<3>(IDX_BG) = bg_j - bg_i;
 
     if (q_ij_corrected != nullptr){
         *q_ij_corrected = q_ij;
@@ -213,6 +238,16 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
     QuaT qj = Xj.q().normalized();
     M3T Ri = qi.toRotationMatrix();
     M3T Rj = qj.toRotationMatrix();
+    // std::cout << "qi:\n" << qi.coeffs().transpose() << std::endl;
+    // std::cout << "qj:\n" << qj.coeffs().transpose() << std::endl;
+    // std::cout << "qij:\n" << qij.coeffs().transpose() << std::endl;
+    // std::cout << "pi:\n" << Xi.p().transpose() << std::endl;
+    // std::cout << "pj:\n" << Xj.p().transpose() << std::endl;
+    // std::cout << "vi:\n" << Xi.v().transpose() << std::endl;
+    // std::cout << "vj:\n" << Xj.v().transpose()<< std::endl;
+    // std::cout << "g:\n" << gravity.transpose()<< std::endl;
+    // std::cout << "dt: " << total_t << std::endl;
+
     switch (P_DX)
     {
     case IDX_P:
@@ -222,6 +257,10 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
         jacobian.block<3,3>(IDX_P, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose() * (Xj.p() - Xi.p() - Xi.v() * total_t + 0.5 * gravity * total_t * total_t));
         jacobian.block<3,3>(IDX_R, 0) = -(MathUtils::quaLeftMultiMat(qj.conjugate() * qi) * MathUtils::quaRightMultiMat(qij)).bottomRightCorner<3,3>();
         jacobian.block<3,3>(IDX_V, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose()* (Xj.v() - Xi.v() + gravity * total_t));
+        // std::cout << "mark" << std::endl;
+        // std::cout << jacobian.block<3,3>(IDX_P, 0) << std::endl;
+        // std::cout << jacobian.block<3,3>(IDX_R, 0) << std::endl;
+        // std::cout << jacobian.block<3,3>(IDX_V, 0) << std::endl;
         break;
     case IDX_V:
         jacobian.block<3,3>(IDX_P, 0) = - Ri.transpose() * total_t;

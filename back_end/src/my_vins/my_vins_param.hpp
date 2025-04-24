@@ -7,9 +7,9 @@ namespace my_vins{
 class MyVinsParamServer: public slam_utils::ROSParamInput{
 public:
     const std::string namesp = "MyVinsParam";
-    int WINDOW_SIZE = 10;
+    int WINDOW_SIZE = 20;
     float PARALLAX_THREASHOLD = 10.1;
-    int NOKEYFRAME_THREASHOLD = 4;
+    int NOKEYFRAME_THREASHOLD = 10;
     int NUM_ITERATIONS = 5;
 
     static MyVinsParamServer& getInstance()

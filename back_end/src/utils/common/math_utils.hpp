@@ -148,7 +148,7 @@ Eigen::Quaternion<Scalar> quaExp(Eigen::Quaternion<Scalar> q, Scalar t){
 template<typename Scalar = double>
 Eigen::Quaternion<Scalar> deltaQua(const Eigen::Matrix<Scalar, 3, 1>& delata_theta)
 {
-  return Eigen::Quaternion<Scalar>(1, delata_theta.x(), delata_theta.y(), delata_theta.z());
+  return Eigen::Quaternion<Scalar>(1, delata_theta.x() * 0.5, delata_theta.y() * 0.5, delata_theta.z() * 0.5);
 }
 
 class PoseEigenQuaRightPerturbManifold : public ceres::Manifold
@@ -178,12 +178,13 @@ public:
       Eigen::Map<const Eigen::Vector3d> py(y);
       Eigen::Map<const Eigen::Quaterniond> qy(y+3);
       Eigen::Map<Eigen::Vector3d> dp(delta);
-      Eigen::Map<Eigen::Vector3d> dq(delta);
+      Eigen::Map<Eigen::Vector3d> dq(delta + 3);
 
       dp = px - py;      
-      Eigen::Quaterniond dq_ = qy.inverse() * qx;
+      Eigen::Quaterniond dq_ = qx * qy.inverse();
       dq_.normalize();
-      dq = dq_.vec();
+      dq = 2 * dq_.vec();
+      // std::cout << "minus" << std::endl;
       return true;
     }
 
@@ -203,7 +204,10 @@ public:
       Eigen::Map<const Eigen::Vector3d> p(x);
       Eigen::Map<const Eigen::Quaterniond> q(x+3);
       jac.setZero();
-      jac.block<6,6>(0,0).setIdentity();
+      jac.block<3,3>(0,0).setIdentity();
+      Eigen::Quaterniond qaa = q;
+      std::cout << "minusJacobian" << std::endl;
+      jac.block<3,3>(3,3) = (quaRightMultiMat(q.inverse()) * quaLeftMultiMat(qaa)).bottomRightCorner<3,3>();
       return true;
     }
 
@@ -213,9 +217,9 @@ public:
 private:
 
 };
-Eigen::SparseMatrix<double> ceresCRS2EigenSparse(ceres::CRSMatrix& crs_mat)
+inline Eigen::SparseMatrix<double> ceresCRS2EigenSparse(ceres::CRSMatrix& crs_mat)
 {
-  Eigen::SparseMatrix<double> ret;
+  Eigen::SparseMatrix<double> ret(crs_mat.num_rows, crs_mat.num_cols);
   std::vector<Eigen::Triplet<double>> triplets;
   for (int row = 0; row < crs_mat.rows.size() - 1; row++)
   {
@@ -231,6 +235,18 @@ Eigen::SparseMatrix<double> ceresCRS2EigenSparse(ceres::CRSMatrix& crs_mat)
   }
   ret.setFromTriplets(triplets.begin(), triplets.end());
   return ret;
+}
+template<typename Scalar>
+std::pair<Eigen::Matrix<Scalar, 3, 1>, Eigen::Matrix<Scalar, 3, 1>> getSphereTangentOrthonormalBasis(const Eigen::Matrix<Scalar, 3, 1>& pose)
+{
+    std::pair<Eigen::Matrix<Scalar, 3, 1>, Eigen::Matrix<Scalar, 3, 1>> tangent_base;
+    Eigen::Vector3d a = pose.normalized();
+    Eigen::Vector3d tmp(0, 0, 1);
+    if(a == tmp)
+        tmp << 1, 0, 0;
+    tangent_base.first = (tmp - a * (a.transpose() * tmp)).normalized();
+    tangent_base.second = a.cross(tangent_base.first);
+    return tangent_base;
 }
 
 } 

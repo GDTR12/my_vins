@@ -77,11 +77,11 @@ public:
 
         ~ConstPoseVar(){}
 
-        const V3T& p() const {return *reinterpret_cast<const V3T*>(data_pq);}
-        const QuaT& q() const {return *reinterpret_cast<const QuaT*>(data_pq + 3);}
-        const V3T& v() const {return *reinterpret_cast<const V3T*>(data_vag);}
-        const V3T& ba() const {return *reinterpret_cast<const V3T*>(data_vag + 3);}
-        const V3T& bg() const {return *reinterpret_cast<const V3T*>(data_vag + 6);}
+        inline Eigen::Map<const V3T> p() const {return Eigen::Map<const V3T>(data_pq);}
+        inline Eigen::Map<const QuaT> q() const {return Eigen::Map<const QuaT>(data_pq + 3);}
+        inline Eigen::Map<const V3T> v() const {return Eigen::Map<const V3T>(data_vag);}
+        inline Eigen::Map<const V3T> ba() const {return Eigen::Map<const V3T>(data_vag + 3);}
+        inline Eigen::Map<const V3T> bg() const {return Eigen::Map<const V3T>(data_vag + 6);}
 
 
 
@@ -138,21 +138,36 @@ public:
         return ret;
     }
 
-
+    Eigen::Map<V3T> p() {return Eigen::Map<V3T>(p_itok.data());}
+    Eigen::Map<QuaT> q() {return Eigen::Map<QuaT>(q_itok.coeffs().data());}
+    Eigen::Map<V3T> v() {return Eigen::Map<V3T>(v_itok.data());}
+    Eigen::Map<V3T> ba_() {return Eigen::Map<V3T>(ba.data());}
+    Eigen::Map<V3T> bg_() {return Eigen::Map<V3T>(bg.data());}
 
 
     V3T getBiasGyroscope(){return bg;}
     V3T getBiasAccel(){return ba;}
+    static void initializeNoise(double acc_n, double acc_w, double gyr_n, double gyr_w)
+    {
+        ACC_N = acc_n;
+        ACC_W = acc_w;
+        GYR_N = gyr_n;
+        GYR_W = gyr_w;
+        noise_initialized = true;
+    }
 
 private:
     // 积分变量
+    static double ACC_N, ACC_W, GYR_N, GYR_W;
+    static bool noise_initialized;
+
     V3T p_itok = V3T::Zero(), v_itok = V3T::Zero();
     QuaT q_itok = QuaT::Identity();
     Scalar total_t = 0;
     bool complete_mark = false;
     Eigen::Matrix<Scalar, 15, 15> info_mat = Eigen::Matrix<Scalar, 15, 15>::Identity();
 
-    Eigen::Matrix<Scalar, 15, 15> cov = Eigen::Matrix<Scalar, 15, 15>::Identity();
+    Eigen::Matrix<Scalar, 15, 15> cov = Eigen::Matrix<Scalar, 15, 15>::Zero();
     Eigen::Matrix<Scalar, 18, 18> noise = Eigen::Matrix<Scalar, 18, 18>::Identity();
     Eigen::Matrix<Scalar, 15, 15> jac = Eigen::Matrix<Scalar, 15, 15>::Identity();
     std::vector<PreInterVar> imu_src;

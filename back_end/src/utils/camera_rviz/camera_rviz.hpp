@@ -55,10 +55,10 @@ public:
         msg.points.push_back(lp1); msg.points.push_back(lp2);
         msg.lifetime = rclcpp::Duration::from_seconds(0);  // 0 表示永久
     }
-    CameraRvizMsgGenerator(Eigen::Quaterniond&& qua_, Eigen::Vector3d&& trans_)
+    CameraRvizMsgGenerator(const Eigen::Quaterniond&& qua_, const Eigen::Vector3d&& trans_)
      : CameraRvizMsgGenerator(qua_, trans_){}
 
-    CameraRvizMsgGenerator(Eigen::Quaterniond& qua_, Eigen::Vector3d& trans_)
+    CameraRvizMsgGenerator(const Eigen::Quaterniond& qua_, const Eigen::Vector3d& trans_)
      :qua(qua_), trans(trans_){}
 
 

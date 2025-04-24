@@ -213,6 +213,16 @@ public:
         return size;
     }
 
+    void getOptimizedFeaturesOfNode(int idx_node, std::vector<std::reference_wrapper<PointObservation>>& observes_ref,std::vector<std::reference_wrapper<PointFeature>>& feas_ref)
+    {
+        ObserverNode* node = getNodeAt(idx_node);
+        for (auto& observe: node->observes){
+            if (getFeatureAt<PointFeature>(observe->idx).optimized()){
+                observes_ref.push_back(*dynamic_cast<PointObservation*>(observe.get()));
+                feas_ref.push_back(*dynamic_cast<PointFeature*>(feas[observe->idx].get()));
+            }
+        }
+    }
 
 
     CameraObserver* appendIfKeyFrame(  rclcpp::Time t, 
