@@ -3,6 +3,7 @@ project(my_vins)
 
 include(${CMAKE_CURRENT_LIST_DIR}/../conan_cmake/conan_toolchain.cmake)
 include_directories(${CMAKE_INCLUDE_PATH})
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   add_definitions(-D _DEBUG)

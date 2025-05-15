@@ -5,6 +5,8 @@
 #include "utils/common/math_utils.hpp"
 #include "utils/common/common_utils.hpp"
 #include "my_vins_slidewindow.hpp"
+#include "opencv2/opencv.hpp"
+#include "opencv2/core/eigen.hpp"
 
 namespace my_vins
 {
@@ -34,14 +36,14 @@ MyVins::MyVins()
     std::vector<double> c_mat_vec, d_mat_vec;
     param.getConfigParam<std::vector<double>>("projection_parameters", c_mat_vec);
     param.getConfigParam<std::vector<double>>("distortion_parameters", d_mat_vec);
-    M3T camera_mat;
-    camera_mat << c_mat_vec[0], 0, c_mat_vec[2],
+    // M3T camera_mat;
+    param.camera_mat << c_mat_vec[0], 0, c_mat_vec[2],
                       0, c_mat_vec[1], c_mat_vec[3],
                       0, 0, 1;
 
-    V4T distort_mat = Eigen::Map<V4T>(d_mat_vec.data());
+    param.distort_coeffs= Eigen::Map<V4T>(d_mat_vec.data());
     vis = std::make_shared<MyVinsVis>(*this);
-    sfm = std::make_shared<MyVinsSFM>(*this, *vis.get(), camera_mat, distort_mat);
+    sfm = std::make_shared<MyVinsSFM>(*this, *vis.get(), param.camera_mat, param.distort_coeffs);
 
     std::vector<double> q_ItoC_vec, t_ItoC_vec;
     param.getConfigParam<std::vector<double>>("extrinsic_param_q", q_ItoC_vec);
@@ -178,8 +180,8 @@ bool MyVins::popImuData()
                     data1.time = data_nxt.t.seconds();
                     data0.w = data.w; data0.a = data.a;
                     data1.w = data_nxt.w; data1.a = data_nxt.a;
-                    data0.ba = node.imu_ba; data0.bw = node.imu_bw;
-                    data1.ba = node_nxt.imu_ba; data1.bw = node_nxt.imu_bw;
+                    data0.ba = node.ba(); data0.bw = node.bg();
+                    data1.ba = node_nxt.ba(); data1.bw = node_nxt.bg();
                     
                     auto inter_d = slam_utils::ImuLinearInterp(data0, data1, t_end.seconds());
                     imu_preintegrate::PreInterVar inter_imu;
@@ -236,15 +238,23 @@ bool MyVins::popMatchBuffer()
     std::vector<Eigen::Matrix<Scalar, -1, 1>> feas_data;
     std::vector<int> map_prev;
 
+    cv::Mat camera_mat, distort_coeffs;
+    cv::eigen2cv(param.camera_mat, camera_mat);
+    cv::eigen2cv(param.distort_coeffs, distort_coeffs);
+    // cv::Mat camera_mat = cv::Mat::eye(3, 3, CV_64F);
+
     for (size_t i = 0; i < result->kpts.size() - 1; i += 2){
         feas_data.emplace_back(Eigen::Matrix<Scalar, -1, 1>::Zero(3));
         auto& observe = observe_data.emplace_back(3);
         map_prev.push_back(result->match_prev_id[i / 2]);
-        Scalar x = result->kpts[i];
-        Scalar y = result->kpts[i+1];
+        std::vector<cv::Point2f> input, output;
+        input.push_back(cv::Point2f(result->kpts[i], result->kpts[i+1]));
+
+        cv::undistortPoints(input, output, camera_mat, distort_coeffs);
+        V3T pixel = param.camera_mat * V3T(output[0].x, output[0].y, 1.0);
         Scalar depth = 1;
-        observe(0) = x;
-        observe(1) = y;
+        observe(0) = pixel.x();
+        observe(1) = pixel.y();
         observe(2) = depth;
     }
     int id = result->id;
@@ -300,6 +310,7 @@ void MyVins::imuInit()
     {
         auto& node = frame_manager.getNodeAt<CameraObserver>(i);
         node.preintegrator.update(V3T::Zero(), result);
+        // node.preintegrator.repropagate(V3T::Zero(), result);
     }
     RCLCPP_INFO(this->get_logger(), "Imu bias: %s", EFMT(result.transpose()));
     RCLCPP_INFO(this->get_logger(), "Cost time: %.6f ms", timer.end(start));
@@ -368,7 +379,7 @@ bool MyVins::visualInertialAlign()
     RCLCPP_INFO(this->get_logger(), "s: %.5f", result(3));
     g_InC0 = result.head<3>();
     s = result(3);
-    if (fabs(result.head<3>().norm() - 9.8) > 0.5){
+    if (fabs(result.head<3>().norm() - 9.8) > 1.5){
         RCLCPP_ERROR(this->get_logger(), "failed to align camera and imu!");
         return false;
     }
@@ -427,6 +438,11 @@ bool MyVins::visualInertialAlign()
     V3T g_truth(0,0,param.getConfigParam<double>("gravity_norm"));
     V3T g_inI0 = q_ItoC.toRotationMatrix() * g_InC0;
     q_WtoI0 = QuaT::FromTwoVectors(g_inI0, g_truth);
+    std::cout << g_InC0.transpose() << std::endl;
+    std::cout << q_WtoI0.toRotationMatrix() << std::endl;
+    std::cout << "eular: " << q_WtoI0.toRotationMatrix().eulerAngles(0, 1, 2).transpose() << std::endl;
+    std::cout << "g after: " << (q_WtoI0.toRotationMatrix() * g_inI0).transpose() << std::endl;
+    // exit(0);
 #ifdef _DEBUG
     RCLCPP_INFO(this->get_logger(), "g truth: %s, transformed g: %s", EFMT(g_truth.transpose()), 
         EFMT((q_WtoI0.toRotationMatrix() * q_ItoC.toRotationMatrix() * g_InC0).transpose()));
@@ -442,8 +458,8 @@ bool MyVins::visualInertialAlign()
         Sophus::SE3d T_WtoIi = T_WtoCi * Sophus::SE3d(q_ItoC, t_ItoC).inverse();
         node.setPosition(T_WtoIi.unit_quaternion(), T_WtoIi.translation());
 
-        node.vel() =  result.segment<3>(4 + i * 3);
-        std::cout << "vel_" << i << ": " << result.segment<3>(3 + i * 3).transpose() << " " << std::endl;
+        node.vel() =  T_WtoIi.rotationMatrix() * result.segment<3>(4 + i * 3);
+        std::cout << "vel_" << i << ": " << result.segment<3>(4 + i * 3).transpose() << " " << std::endl;
     }
      
     for (size_t i = 0; i < frame_manager.getFeatureSize(); i++)
@@ -474,40 +490,51 @@ while (true)
     popMatchBuffer();
     popImuData();
     if (!state.initialized){
-        if (frame_manager.getNodeSize() < 20 || frame_manager.getNodeSize() % 5 != 0){
+        if (frame_manager.getNodeSize() < param.NUM_INIT || frame_manager.getNodeSize() % 5 != 0){
             continue;
         }else{
             RCLCPP_INFO(this->get_logger(), "init structure");
-            if (sfm->initStructure()){
+            // if (sfm->initStructure()){
+            if (sfm->initStructureNew()){
+                // exit(0);
                 imuInit();
                 // vis->visAllFeatures();
                 // vis->visAllNodesTracjectory();
                 // std::this_thread::sleep_for(5s);
                 if (!visualInertialAlign()){
-                    exit(-1);
+                    continue;
                 }
                 // exit(0);
                 // vis->visAllFeatures();
                 // vis->visAllNodesWithFeas();
+                // exit(0);
                 state.initialized = true;
             }
         }
     }else{
-
+        
         int idx_solve = frame_manager.getInitializedNodeSize();
-        std::cout << "new frame at " << idx_solve << std::endl;
+        int opt_solve = frame_manager.getOptimizedNodeSize();
+        // std::cout << "new frame at " << idx_solve << std::endl;
 
-        if (idx_solve < frame_manager.getNodeSize()){
+        // if (idx_solve < frame_manager.getNodeSize()){
+        if (opt_solve == idx_solve){
             CameraObserver& node = frame_manager.getNodeAt<CameraObserver>(idx_solve);
             CameraObserver& prev_node = frame_manager.getNodeAt<CameraObserver>(idx_solve - 1);
             if (!sfm->solveNewFrameAt(idx_solve, Sophus::SE3d(q_ItoC, t_ItoC))){
                 node.setPosition(prev_node.getSE3Position().unit_quaternion(), prev_node.getSE3Position().translation());
                 std::cout << " init failed" << std::endl;
+                idx_solve++;
             }
         }
-        sldwin->step();
-        vis->visAllFeatures();
-        vis->visAllNodesTracjectory();
+        if (opt_solve < idx_solve){
+            sldwin->step();
+            vis->visAllFeatures();
+            vis->visAllNodesTracjectory();
+            // if (sldwin->win_nodes.size() == param.WINDOW_SIZE){
+            //     exit(0);
+            // }
+        }
     }
     // std::this_thread::sleep_for(1ms);
 }

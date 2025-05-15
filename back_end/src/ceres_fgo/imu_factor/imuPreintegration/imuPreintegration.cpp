@@ -169,11 +169,11 @@ void ImuPreintegration::propagate(PreInterVar& v)
 }
 
 
-Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const ConstPoseVar& Xi, const ConstPoseVar& Xj,
+Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const PoseVelBias& Xi, const PoseVelBias& Xj,
                                                                            QuaT* q_ij_corrected, V3T* p_ij_corrected, V3T* v_ij_corrected)
 {
-    return evaluate(Xi.q(), Xi.p(), Xi.v(), Xi.bg(), Xi.ba(),
-             Xj.q(), Xj.p(), Xj.v(), Xj.bg(), Xj.ba(),
+    return evaluate(Xi.q, Xi.p, Xi.vel, Xi.bg, Xi.ba,
+             Xj.q, Xj.p, Xj.vel, Xj.bg, Xj.ba,
              q_ij_corrected, p_ij_corrected, v_ij_corrected);
 }                                                                           
 
@@ -222,7 +222,7 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15,1> ImuPreintegration::evaluate(const
 
  
 Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPoseJacobian(InterDeltaVar P_DX, 
-                                                                                            ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                                                            const PoseVelBias& Xi, const PoseVelBias& Xj,
                                                                                             QuaT* q_ij_corrected)
 {
     Eigen::Matrix<Scalar, 15, 3> jacobian = Eigen::Matrix<Scalar, 15, 3>::Zero();
@@ -234,8 +234,8 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
         qij = q_itok;
     }
 
-    QuaT qi = Xi.q().normalized();
-    QuaT qj = Xj.q().normalized();
+    QuaT qi = Xi.q.normalized();
+    QuaT qj = Xj.q.normalized();
     M3T Ri = qi.toRotationMatrix();
     M3T Rj = qj.toRotationMatrix();
     // std::cout << "qi:\n" << qi.coeffs().transpose() << std::endl;
@@ -254,9 +254,9 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
         jacobian.block<3, 3>(0,0) = -Ri.transpose();
         break;
     case IDX_R:
-        jacobian.block<3,3>(IDX_P, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose() * (Xj.p() - Xi.p() - Xi.v() * total_t + 0.5 * gravity * total_t * total_t));
+        jacobian.block<3,3>(IDX_P, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose() * (Xj.p - Xi.p - Xi.vel * total_t + 0.5 * gravity * total_t * total_t));
         jacobian.block<3,3>(IDX_R, 0) = -(MathUtils::quaLeftMultiMat(qj.conjugate() * qi) * MathUtils::quaRightMultiMat(qij)).bottomRightCorner<3,3>();
-        jacobian.block<3,3>(IDX_V, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose()* (Xj.v() - Xi.v() + gravity * total_t));
+        jacobian.block<3,3>(IDX_V, 0) = Sophus::SO3<Scalar>::hat(Ri.transpose()* (Xj.vel - Xi.vel + gravity * total_t));
         // std::cout << "mark" << std::endl;
         // std::cout << jacobian.block<3,3>(IDX_P, 0) << std::endl;
         // std::cout << jacobian.block<3,3>(IDX_R, 0) << std::endl;
@@ -284,7 +284,7 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computePrevPo
 }
 
 Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computeBackPoseJacobian(InterDeltaVar P_DX,
-                                                ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                const PoseVelBias& Xi, const PoseVelBias& Xj,
                                                 QuaT* q_ij_corrected)
 {
     Eigen::Matrix<Scalar, 15, 3> jacobian = Eigen::Matrix<Scalar, 15, 3>::Zero();
@@ -296,8 +296,8 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computeBackPo
         qij = q_itok;
     }
 
-    QuaT qi = Xi.q().normalized();
-    QuaT qj = Xj.q().normalized();
+    QuaT qi = Xi.q.normalized();
+    QuaT qj = Xj.q.normalized();
     M3T Ri = qi.toRotationMatrix();
     M3T Rj = qj.toRotationMatrix();
     switch (P_DX)
@@ -326,6 +326,7 @@ Eigen::Matrix<ImuPreintegration::Scalar, 15, 3> ImuPreintegration::computeBackPo
 void ImuPreintegration::complete()
 {
     info_mat = Eigen::LLT<Eigen::Matrix<Scalar, 15, 15>>(cov.inverse()).matrixL().transpose();
+    // std::cout << info_mat << std::endl;
     complete_mark = true;
 }
 

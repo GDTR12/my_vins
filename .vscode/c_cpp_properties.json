@@ -3,7 +3,6 @@
         {
             "name": "linux-gcc-x64",
             "includePath": [
-                // "/usr/include/",
                 "/usr/include/c++/9",
                 "${workspaceFolder}/back_end/src/**",
                 "/usr/include/eigen3/",

@@ -65,30 +65,13 @@ public:
         IDX_N_BW = 15
     };
 
-    struct ConstPoseVar
+    struct PoseVelBias
     {
     public:
-
-        ConstPoseVar(const Scalar* var_pq, const Scalar* var_vag) 
-        {
-            data_pq = var_pq;
-            data_vag = var_pq;
-        }
-
-        ~ConstPoseVar(){}
-
-        inline Eigen::Map<const V3T> p() const {return Eigen::Map<const V3T>(data_pq);}
-        inline Eigen::Map<const QuaT> q() const {return Eigen::Map<const QuaT>(data_pq + 3);}
-        inline Eigen::Map<const V3T> v() const {return Eigen::Map<const V3T>(data_vag);}
-        inline Eigen::Map<const V3T> ba() const {return Eigen::Map<const V3T>(data_vag + 3);}
-        inline Eigen::Map<const V3T> bg() const {return Eigen::Map<const V3T>(data_vag + 6);}
-
-
-
-    private:
-        const Scalar* data_pq;
-        const Scalar* data_vag;
+        V3T p{V3T::Zero()}, vel{V3T::Zero()}, ba{V3T::Zero()}, bg{V3T::Zero()};
+        QuaT q{QuaT::Identity()};
     };
+
 
 
     ImuPreintegration();
@@ -106,14 +89,14 @@ public:
                                          const QuaT& q_j, const V3T& p_j, const V3T& v_j, const V3T& bg_j, const V3T& ba_j,
                                          QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr);
     
-    Eigen::Matrix<Scalar, 15,1> evaluate(const ConstPoseVar& Xi, const ConstPoseVar& Xj,
+    Eigen::Matrix<Scalar, 15,1> evaluate(const PoseVelBias& Xi, const PoseVelBias& Xj,
                                          QuaT* q_ij_corrected = nullptr, V3T* p_ij_corrected = nullptr, V3T* v_ij_corrected = nullptr);
 
     Eigen::Matrix<Scalar, 15, 3> computePrevPoseJacobian(InterDeltaVar P_DX,
-                                                        ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                        const PoseVelBias& Xi, const PoseVelBias& Xj,
                                                         QuaT* q_ij_corrected = nullptr);
     Eigen::Matrix<Scalar, 15, 3> computeBackPoseJacobian(InterDeltaVar P_DX, 
-                                                        ConstPoseVar& Xi, ConstPoseVar& Xj,
+                                                        const PoseVelBias& Xi, const PoseVelBias& Xj,
                                                         QuaT* q_ij_corrected = nullptr);
     
     void complete();
@@ -141,8 +124,8 @@ public:
     Eigen::Map<V3T> p() {return Eigen::Map<V3T>(p_itok.data());}
     Eigen::Map<QuaT> q() {return Eigen::Map<QuaT>(q_itok.coeffs().data());}
     Eigen::Map<V3T> v() {return Eigen::Map<V3T>(v_itok.data());}
-    Eigen::Map<V3T> ba_() {return Eigen::Map<V3T>(ba.data());}
-    Eigen::Map<V3T> bg_() {return Eigen::Map<V3T>(bg.data());}
+    V3T& ba_() {return ba;}
+    V3T& bg_() {return bg;}
 
 
     V3T getBiasGyroscope(){return bg;}

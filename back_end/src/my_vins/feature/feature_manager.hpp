@@ -271,6 +271,32 @@ public:
             }
         }
     }
+
+    template<typename FeatureType, typename ObservationType>
+    void getNodeFeaturesNew(uint32_t idx_node, std::vector<ObservationType*>& observes_ref,std::vector<FeatureType*>& feas_ref, int mode = 0){
+        ObserverNode* node = getNodeAt(idx_node);
+        if (mode == 0){
+            for (auto& observe: node->observes){
+                observes_ref.push_back(dynamic_cast<ObservationType*>(observe.get()));
+                feas_ref.push_back(dynamic_cast<FeatureType*>(feas[observe->idx].get()));
+            }
+        }else if(mode == 1){
+            for (auto& observe: node->observes){
+                if (feas[observe->idx]->is_initialized()){
+                    observes_ref.push_back(dynamic_cast<ObservationType*>(observe.get()));
+                    feas_ref.push_back(dynamic_cast<FeatureType*>(feas[observe->idx].get()));
+                }
+            }
+        }else if(mode == 2){
+            for (auto& observe: node->observes){
+                if (!feas[observe->idx]->is_initialized()){
+                    observes_ref.push_back(dynamic_cast<ObservationType*>(observe.get()));
+                    feas_ref.push_back(dynamic_cast<FeatureType*>(feas[observe->idx].get()));
+                }
+            }
+        }
+    }
+
     /* 
     mode = 0: all feas
     mode = 1: initialized feas

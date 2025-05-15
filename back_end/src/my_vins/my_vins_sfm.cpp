@@ -415,10 +415,48 @@ bool MyVinsSFM::solvePnP(std::vector<std::reference_wrapper<PointObservation>>& 
         cv::cv2eigen(r, R_0toi);
         cv::cv2eigen(t_vec, t_ito0);
     }
+    T_ito0.setIdentity();
     T_ito0.block<3,3>(0,0) = R_0toi;
     T_ito0.block<3,1>(0,3) = t_ito0;
     return ret;
 }
+
+bool MyVinsSFM::solvePnPNew(std::vector<PointObservation*>& observe, std::vector<PointFeature*>& feas, M4T& T_ito0)
+{
+    std::vector<cv::Point2f> cv_observes;
+    std::vector<cv::Point3f> cv_feas;
+    for (size_t i = 0; i < observe.size(); i++)
+    {
+        V3T observe_data = observe[i]->getData();
+        cv_observes.push_back(cv::Point2f(observe_data.x(), observe_data.y()));
+        V3T fea_data = feas[i]->getData();
+        cv_feas.push_back(cv::Point3f(fea_data.x(), fea_data.y(), fea_data.z()));
+    }
+    cv::Mat c_mat, d_mat, r_vec, t_vec, r;
+    r_vec.create(cv::Size(3,1), CV_32F);
+    t_vec.create(cv::Size(3,1), CV_32F);
+
+    Eigen::AngleAxis<Scalar> rotate(T_ito0.block<3,3>(0,0));
+    V3T trans = T_ito0.block<3,1>(0,3);
+    cv::eigen2cv(rotate.axis(), r_vec);
+    cv::eigen2cv(trans, t_vec);
+
+    cv::eigen2cv(camera_mat, c_mat);
+    cv::eigen2cv(distort_vec, d_mat);
+    bool ret = cv::solvePnPRansac(cv_feas, cv_observes, c_mat, cv::noArray(), r_vec, t_vec);
+    M3T R_0toi;
+    V3T t_ito0;
+    if (ret){
+        cv::Rodrigues(r_vec, r);
+        cv::cv2eigen(r, R_0toi);
+        cv::cv2eigen(t_vec, t_ito0);
+    }
+    T_ito0.setIdentity();
+    T_ito0.block<3,3>(0,0) = R_0toi;
+    T_ito0.block<3,1>(0,3) = t_ito0;
+    return ret;
+}
+
 
 void MyVinsSFM::buildBA(std::vector<int>& indices_node)
 {
@@ -793,6 +831,206 @@ void MyVinsSFM::globalBAGTSAM(int idx_begin, int idx_end)
 
 
 
+bool MyVinsSFM::initStructureNew()
+{
+    MyVinsFeatureManager& fm = vins.frame_manager;
+    int back_id, prev_id;
+
+    {
+        std::vector<std::pair<double, std::pair<int,int>>> matches_parallex;
+        for (int i = 0; i < fm.getNodeSize() - 2; i++)
+        {
+            for (int j = i + 1; j < fm.getNodeSize() - 1; j++)
+            {
+                std::vector<std::reference_wrapper<PointFeature>> feas;
+                std::vector<std::reference_wrapper<PointObservation>> observe_prev;
+                std::vector<std::reference_wrapper<PointObservation>> observe_back;
+
+                getMatches(i, j, feas, observe_prev, observe_back, 0);
+                if (feas.size() < 100){
+                    continue;
+                }
+                Scalar pallax = computeParllax(observe_prev, observe_back);
+                matches_parallex.push_back(std::make_pair(pallax, std::make_pair(i,j)));
+            }
+        }
+        std::sort(matches_parallex.begin(), matches_parallex.end(), [](const auto& a, const auto& b){
+            return a.first > b.first;
+        });
+
+        std::vector<std::reference_wrapper<PointFeature>> feas;
+        std::vector<std::reference_wrapper<PointObservation>> observe_prev;
+        std::vector<std::reference_wrapper<PointObservation>> observe_back;
+        prev_id = matches_parallex.front().second.first;
+        back_id = matches_parallex.front().second.second;
+        CameraObserver& node_ref = vins.frame_manager.getNodeAt<CameraObserver>(prev_id);
+        CameraObserver& node_back = vins.frame_manager.getNodeAt<CameraObserver>(back_id);
+        node_ref.setPosition(QuaT::Identity(), V3T::Zero());
+
+        // std::cout << "init structure pre back:" << prev_id << " " << back_id << std::endl;
+
+        M3T R_itoj;
+        V3T t_itoj;
+        getMatches(prev_id, back_id, feas, observe_prev, observe_back, 0);
+        std::cout << prev_id << " " << back_id << std::endl;
+        if(!computeRotateAndUnScaledTranslate(observe_prev, observe_back, R_itoj, t_itoj)){
+            std::cerr << "compute rotate and translate failed" << std::endl;
+            return false;
+        }
+        node_back.setPosition(QuaT(R_itoj), t_itoj);
+
+        Eigen::Matrix<Scalar, 3, 4> T_ito0, T_jto0;
+        T_ito0.block<3,3>(0,0) = QuaT::Identity().toRotationMatrix().transpose();
+        T_ito0.block<3,1>(0,3) = -QuaT::Identity().toRotationMatrix().transpose() * V3T::Zero();
+        T_jto0.block<3,3>(0,0) = R_itoj.transpose();
+        T_jto0.block<3,1>(0,3) = -R_itoj.transpose() * t_itoj;
+        triangulate(T_ito0, T_jto0, feas, observe_prev, observe_back);
+    }
+    // std::cout << "g " << std::endl;
+    // for (auto& fea : feas){
+    //     std::cout << fea.get.transpose() << std::endl;
+    // }
+
+    {
+        int length_triangle = back_id - prev_id;
+        std::set<int> unsolve_list, solved_list;
+        for (int i = 0; i < fm.getNodeSize(); i++){
+            unsolve_list.insert(i);
+        }
+        solved_list.insert(prev_id);
+        solved_list.insert(back_id);
+        unsolve_list.erase(prev_id);
+        unsolve_list.erase(back_id);
+
+        // 找到距离i，j最近的id,如果j = -1, 则不找离j近的点
+        auto find_closest_unsolve = [&](int i, int j = -1)->int{      
+            int min_dist = 1e5;
+            int closest_id = 0;
+            for (auto& id : unsolve_list){
+                if (id == i || id == j){
+                    continue;
+                }
+                if (min_dist > abs(id - i)){
+                    min_dist = abs(id - i);
+                    closest_id = id;
+                }
+                if (j != -1){
+                    if (min_dist > abs(id - j)){
+                        min_dist = abs(id - j);
+                        closest_id = id;
+                    }
+                }
+            }
+            return closest_id;
+        };
+
+        auto find_closest_solved = [&](int i)->int{      
+            int min_dist = 1e5;
+            int closest_id = 0;
+            for (auto& id : solved_list){
+                if (id == i){
+                    continue;
+                }
+                if (min_dist > abs(id - i)){
+                    min_dist = abs(id - i);
+                    closest_id = id;
+                }
+            }
+            return closest_id;
+        };
+
+
+        while(true){
+            int id_solve = find_closest_unsolve(prev_id, back_id);
+            // std::vector<std::reference_wrapper<PointFeature>> feas_node;
+            // std::vector<std::reference_wrapper<PointObservation>> observations;
+
+            std::vector<PointFeature*> feas_node;
+            std::vector<PointObservation*> observations;
+            fm.getNodeFeaturesNew<PointFeature, PointObservation>(id_solve, observations, feas_node, 1);
+            
+            M4T T_ito0;
+            solvePnPNew(observations, feas_node, T_ito0);
+            // std::cout << feas_node.size() << " ";
+            // std::cout << T_ito0 << std::endl;
+            solved_list.insert(id_solve);
+            unsolve_list.erase(id_solve);
+
+            auto& node_prev = vins.frame_manager.getNodeAt<CameraObserver>(id_solve);
+            // std::cout << T_ito0.inverse() << std::endl;
+            node_prev.setPosition(QuaT(T_ito0.inverse().block<3,3>(0,0)).normalized(), T_ito0.inverse().block<3,1>(0,3));
+
+            int id_triangle0 = find_closest_solved(id_solve + length_triangle);
+            int id_triangle1 = find_closest_solved(id_solve - length_triangle);
+            
+            int id_triangle = abs(id_triangle0 - id_solve) > abs(id_triangle1 - id_solve) ? id_triangle0 : id_triangle1;
+            auto& node_back = vins.frame_manager.getNodeAt<CameraObserver>(id_triangle);
+            std::vector<std::reference_wrapper<PointFeature>> feas;
+            std::vector<std::reference_wrapper<PointObservation>> observe_prev;
+            std::vector<std::reference_wrapper<PointObservation>> observe_back;
+            getMatches(id_solve, id_triangle, feas, observe_prev, observe_back, 2);
+
+            std::cout << "init structure: " << id_solve << " " << id_triangle << " " << feas.size() << " " << solved_list.size() << std::endl;
+
+            Eigen::Matrix<Scalar, 3, 4> T_ito0_ = T_ito0.block<3,4>(0,0);
+            Eigen::Matrix<Scalar, 3, 4> T_jto0 = node_back.getPosition().inverse().block<3,4>(0,0);
+            triangulate(T_ito0_, T_jto0, feas, observe_prev, observe_back);
+            if (solved_list.size() == fm.getNodeSize()){
+                break;
+            }
+        }
+    }
+    {
+        for (int i = 0; i < fm.getFeatureSize(); i++){
+            PointFeature& fea = fm.getFeatureAt<PointFeature>(i);
+            if (fea.is_initialized() || fea.map_node.size() < 2){
+                continue;
+            }
+            CameraObserver& node0 = fm.getNodeAt<CameraObserver>(fea.map_node[0]);
+            CameraObserver& node1 = fm.getNodeAt<CameraObserver>(fea.map_node[fea.map_node.size() - 1]);
+            
+            auto iter0 = std::find_if(node0.observes.begin(), node0.observes.end(), [i](std::unique_ptr<my_vins::Observation>& observe){
+                return observe.get()->idx == i;
+            });
+
+            PointObservation& observe0 = *dynamic_cast<PointObservation*>((*iter0).get());
+            V3T observ_data0 = observe0.getData();
+
+            auto iter1 = std::find_if(node1.observes.begin(), node1.observes.end(), [i](std::unique_ptr<my_vins::Observation>& observe){
+                return observe.get()->idx == i;
+            });
+            PointObservation& observe1 = *dynamic_cast<PointObservation*>((*iter1).get());
+            V3T observ_data1 = observe1.getData();
+
+            Eigen::Matrix<Scalar, 3, 4> R0 = camera_mat * node0.getPosition().inverse().block<3,4>(0,0);
+            Eigen::Matrix<Scalar, 3, 4> R1 = camera_mat * node1.getPosition().inverse().block<3,4>(0,0);
+            V3T p_in0 = triangulatePoint(R0, R1, observ_data0.head(2), observ_data1.head(2));
+            fea.setData(p_in0);
+        }
+    }
+
+    vis.visAllFeatures();
+    // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
+    vis.visAllNodesTracjectory();
+    vis.visAllNodesWithFeas();
+    for (int i = 0; i < vins.frame_manager.getNodeSize(); i++){
+        CameraObserver& node = vins.frame_manager.getNodeAt<CameraObserver>(i);
+        std::setprecision(10);
+        std::cout << "pose " << i << " : " << node.getPosition().block<3,1>(0,3).transpose() << std::endl;
+        std::cout << "rot " << i << " : " << node.getSE3Position().rotationMatrix().eulerAngles(0,1,2).transpose() << std::endl;
+    }
+    {
+
+        globalBA(prev_id, back_id);
+        transformAllFramesToC0();
+        // globalBAAuto(idx_node_begin, idx_node_end);
+        // globalBAGTSAM(idx_node_begin, idx_node_end);
+        // vis.visAllNodesWithFeas();
+        // vis.visAllNodesTracjectory();
+        // vis.visAllFeatures();
+    }
+    return true;
+}
 
 
 bool MyVinsSFM::initStructure()
@@ -924,11 +1162,16 @@ bool MyVinsSFM::initStructure()
         std::vector<std::reference_wrapper<PointFeature>> feas_node;
         std::vector<std::reference_wrapper<PointObservation>> observations;
         fea_manager.getNodeFeatures(i, observations, feas_node, 1);
-        M4T T_0toi;
-        if (!solvePnP(observations, feas_node, T_0toi)) 
-            continue;
-        
         auto& node = fea_manager.getNodeAt<CameraObserver>(i);
+        M4T T_0toi;
+        std::cout << i << ": " << observations.size() << std::endl;
+        if (!solvePnP(observations, feas_node, T_0toi)) {
+            std::cout << "solvePnP failed" << std::endl;
+            continue;
+        }
+        std::cout << T_0toi.block<3,1>(0,3).transpose() << std::endl;
+        QuaT q_0toi = QuaT(T_0toi.block<3,3>(0,0)).normalized();
+        std::cout << q_0toi.coeffs().transpose() << std::endl;
         node.setPosition(QuaT(T_0toi.block<3,3>(0,0)).normalized(), T_0toi.block<3,1>(0,3));
 
         std::vector<std::reference_wrapper<PointFeature>> feas;
@@ -963,26 +1206,34 @@ bool MyVinsSFM::initStructure()
         PointObservation& observe1 = *dynamic_cast<PointObservation*>((*iter1).get());
         V3T observ_data1 = observe1.getData();
 
-        Eigen::Matrix<Scalar, 3, 4> R0 = camera_mat * node0.getPosition().block<3,4>(0,0);
-        Eigen::Matrix<Scalar, 3, 4> R1 = camera_mat * node1.getPosition().block<3,4>(0,0);
+        Eigen::Matrix<Scalar, 3, 4> R0 = camera_mat * node0.getPosition().inverse().block<3,4>(0,0);
+        Eigen::Matrix<Scalar, 3, 4> R1 = camera_mat * node1.getPosition().inverse().block<3,4>(0,0);
         V3T p_in0 = triangulatePoint(R0, R1, observ_data0.head(2), observ_data1.head(2));
         fea.setData(p_in0);
     }
-
+    // for (int i = 0; i < fea_manager.getNodeSize(); i++)
+    // {
+    //     auto& node = fea_manager.getNodeAt<CameraObserver>(i);
+    //     std::cout << i << " \n" << node.getSE3Position().translation().transpose() << std::endl;
+    // }
 #ifdef _DEBUG
     std::cout << "Size of feas: " << fea_manager.getFeatureSize() << std::endl;
     std::cout << "Size of nodes: " << fea_manager.getNodeSize() << std::endl;
 #endif
     // vis.visAllNodesWithFeas();
     // vis.showTwoNodeMatches(idx_node_begin, idx_node_end);
-    // // vis.visAllFeatures();
+    // vis.visAllFeatures();
     // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     // vis.visAllNodesTracjectory();
+    // vis.visAllNodesWithFeas();
+    // vis.visAllNodesTracjectory();
+    // exit(0);
     globalBA(idx_node_begin, idx_node_end);
     // globalBAAuto(idx_node_begin, idx_node_end);
     // globalBAGTSAM(idx_node_begin, idx_node_end);
-    // vis.visAllNodesWithFeas();
-    // // vis.visAllFeatures();
+    vis.visAllNodesWithFeas();
+    vis.visAllNodesTracjectory();
+    vis.visAllFeatures();
     // // vis.visCamearaNodesBetween(idx_node_begin, idx_node_end);
     // vis.visAllNodesTracjectory();
 
@@ -1031,8 +1282,8 @@ bool MyVinsSFM::solveNewFrameAt(int idx_node, const Sophus::SE3d& T_ItoC)
         }
         Sophus::SE3d T_WtoIi = Sophus::SE3d::fitToSE3(T_CitoW).inverse() * T_ItoC.inverse();
         node.setPosition(T_WtoIi.unit_quaternion(), T_WtoIi.translation());
-        std::cout << "qua: " << T_WtoIi.unit_quaternion().coeffs().transpose() << std::endl;
-        std::cout << "trans: " << T_WtoIi.translation().transpose() << std::endl;
+        // std::cout << "qua: " << T_WtoIi.unit_quaternion().coeffs().transpose() << std::endl;
+        // std::cout << "trans: " << T_WtoIi.translation().transpose() << std::endl;
 
         std::vector<std::reference_wrapper<PointFeature>> feas;
         std::vector<std::reference_wrapper<PointObservation>> observe_prev;

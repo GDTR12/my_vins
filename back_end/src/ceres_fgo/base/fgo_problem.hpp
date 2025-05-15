@@ -107,6 +107,22 @@ public:
         }
     }
 
+
+    void findEdgesWithPrefix(std::vector<std::string>& ret, const std::vector<std::string>& prefixes)
+    {
+        for (const auto& [id, edge] : edges_)
+        {
+            for (const std::string& prefix: prefixes)
+            {
+                if (id.find(prefix) == 0){
+                    ret.push_back(id);
+                    break;
+                }
+            }
+        }
+
+    }
+
     std::vector<std::string> findVertexAssociatedVertexes(const std::string id_vtx, const std::string prefix="")
     {
         std::vector<std::string> ret;

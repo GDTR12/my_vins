@@ -73,13 +73,14 @@ public:
         v() = node_->vel();
         ba() = node_->ba();
         bg() = node_->bg();
+        std::cout << "vel: " << v().transpose() << std::endl;
+        std::cout << "bg: " << bg().transpose() << std::endl;
     }
 
     void updateData()
     {
         node_->vel() = v();
-        node_->ba() = ba();
-        node_->bg() = bg();
+        node_->setBias(ba(), bg());
     }
 
     Eigen::Map<V3T> v(){return Eigen::Map<V3T>(param_.data());}
@@ -103,16 +104,35 @@ public:
 
     int idx_ob_ = -1;
 
-    FeaturePointVertex(const std::string id, MyVinsFeatureManager* fm, int idx_fea, int idx_node, int idx_ob, const Sophus::SE3d& T_ItoC) 
-        :ceres::BaseVertex(id, 1)
+
+    static FeaturePointVertex* createInstance(const std::string id, MyVinsFeatureManager* fm, int idx_fea, int idx_node, int idx_ob, const Sophus::SE3d& T_ItoC)
     {
-        fm_ = fm;
-        idx_fea_ = idx_fea;
-        fea_ = &(fm->getFeatureAt<PointFeature>(idx_fea_));
-        idx_node_ = idx_node;
-        idx_ob_ = idx_ob;
-        fetchData(T_ItoC);
+        // if (abnormal(fm, idx_fea, idx_node, idx_ob, T_ItoC)){
+        //     return nullptr;
+        // }else{
+            return new FeaturePointVertex(id, fm, idx_fea, idx_node, idx_ob, T_ItoC);
+        // }
     }
+
+    // static bool abnormal(MyVinsFeatureManager* fm, int idx_fea, int idx_node, int idx_ob, const Sophus::SE3d& T_ItoC)
+    // {
+    //     V3T p_inW = fm->getFeatureAt<PointFeature>(idx_fea).getData();
+    //     if (!fm->getFeatureAt<PointFeature>(idx_fea).is_initialized()) return true;
+    //     CameraObserver& node = fm->getNodeAt<CameraObserver>(idx_node);       
+    //     Sophus::SE3d T_WtoCi = node.getSE3Position() * T_ItoC;
+    //     V4T p_inCi = T_WtoCi.inverse().matrix() * (V4T() << p_inW, 1.0).finished();
+    //     // if (p_inCi.head<3>().norm() > 1e5) return true;
+    //     PointObservation& ob = node.getObservationAt(idx_ob);
+    //     std::cout << fm->getCameraMat().transpose() << std::endl;
+    //     V3T ob_vec = ob.toSphereObservation(V4T{461.6, 460.3, 363.0, 248.1});
+    //     // std::cout << "ob: " << ob.getData().transpose() << std::endl;
+    //     // std::cout << "p_inCi: " << p_inCi.head<3>().transpose() << std::endl;
+    //     // if (QuaT::FromTwoVectors(p_inCi.head<3>(), ob_vec).angularDistance(QuaT::Identity()) > 0.1){
+    //     //     // std::cout << "obnormal at " << idx_fea << ": " << p_inCi.head<3>().transpose() << std::endl;
+    //     //     return true;
+    //     // }
+    //     return false;
+    // }
 
     double& inv_d(){return param().x();}
 
@@ -124,6 +144,7 @@ public:
         Sophus::SE3d T_CitoW = T_WtoCi.inverse();
         V4T p_inCi = T_CitoW.matrix() * (V4T() << p_inW, 1.0).finished();
         param().x() = 1.0 / p_inCi.head<3>().norm();
+        // std::cout << "fetch " << idx_fea_ << ": " << fea_->getData().transpose() << std::endl;
         // std::cout << "fetch " << idx_fea_ << " in " << idx_node_ << ": "  << param().x() << std::endl;
     }
 
@@ -138,7 +159,19 @@ public:
         PointFeature& fea = fm_->getFeatureAt<PointFeature>(idx_fea_);
         fea.setData(p_inW.head<3>());
         fea.setOptimizationStatus(true);
-        // std::cout << "update " << idx_fea_ << " in " << idx_node_ << ": "  << param().x() << std::endl;
+        // std::cout << "update " << idx_fea_ << ": " << p_inW.head<3>().transpose() << std::endl;
+    }
+
+private:
+    FeaturePointVertex(const std::string id, MyVinsFeatureManager* fm, int idx_fea, int idx_node, int idx_ob, const Sophus::SE3d& T_ItoC) 
+        :ceres::BaseVertex(id, 1)
+    {
+        fm_ = fm;
+        idx_fea_ = idx_fea;
+        fea_ = &(fm->getFeatureAt<PointFeature>(idx_fea_));
+        idx_node_ = idx_node;
+        idx_ob_ = idx_ob;
+        fetchData(T_ItoC);
     }
 };
 

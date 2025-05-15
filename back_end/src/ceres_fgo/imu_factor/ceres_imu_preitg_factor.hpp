@@ -21,14 +21,33 @@ public:
                         double* residuals,
                         double** jacobians) const override final
     {
-        ImuPreintegration::ConstPoseVar Xi(parameters[0], parameters[1]);
-        ImuPreintegration::ConstPoseVar Xj(parameters[2], parameters[3]);
+        ImuPreintegration::PoseVelBias Xi, Xj;
+        Xi.p = Eigen::Map<const V3T>(parameters[0]);
+        Xi.q = Eigen::Map<const QuaT>(parameters[0] + 3);
+        Xi.vel = Eigen::Map<const V3T>(parameters[1]);
+        Xi.ba = Eigen::Map<const V3T>(parameters[1] + 3);
+        Xi.bg = Eigen::Map<const V3T>(parameters[1] + 6);
+
+        Xj.p = Eigen::Map<const V3T>(parameters[2]);
+        Xj.q = Eigen::Map<const QuaT>(parameters[2] + 3);
+        Xj.vel = Eigen::Map<const V3T>(parameters[3]);
+        Xj.ba = Eigen::Map<const V3T>(parameters[3] + 3);
+        Xj.bg = Eigen::Map<const V3T>(parameters[3] + 6);
+
         Eigen::Map<Eigen::Matrix<Scalar, 15, 1>> res(residuals);
-        
+        // std::cout  << "=================\n";
+        // std::cout << Xi.p.transpose() << " | " << Xj.p.transpose() << std::endl;
+        // std::cout << Xi.q.coeffs().transpose() << " | " << Xj.q.coeffs().transpose() << std::endl;
+        // std::cout << Xi.vel.transpose() << " | " << Xj.vel.transpose() << std::endl;
+        // std::cout << Xi.ba.transpose() << " | " << Xj.ba.transpose() << std::endl;
+        // std::cout << Xi.bg.transpose() << " | " << Xj.bg.transpose() << std::endl;
+
         QuaT qij_;
         V3T pij_, vij_;
-        res = in->getInfo() * in->evaluate(Xi, Xj, &qij_, &pij_, &vij_);
-        // std::cout << in-> getInfo() << std::endl;
+        res = in->evaluate(Xi, Xj, &qij_, &pij_, &vij_);
+        // std::cout << res.transpose() << std::endl;
+        res = in->getInfo() * res;
+        // std::cout << res.transpose() << std::endl;
 
         if (jacobians != nullptr){
             if (jacobians[0] != nullptr){

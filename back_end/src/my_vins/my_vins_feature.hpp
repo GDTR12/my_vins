@@ -137,9 +137,14 @@ public:
 
     V3T& vel(){return vel_;}
 
-    V3T& ba(){return imu_ba;}
+    const V3T ba(){return preintegrator.ba_();}
     
-    V3T& bg(){return imu_bw;}
+    const V3T bg(){return preintegrator.bg_();}
+
+    void setBias(const V3T& bias_gyr, const V3T& bias_accel)
+    {
+        preintegrator.update(bias_accel, bias_gyr);
+    }
 
     void setEstimateStatus(bool status){is_estimated = status;}
 
@@ -152,8 +157,6 @@ private:
     imu_preintegrate::ImuPreintegration preintegrator;
     bool is_imufull = false;
     bool is_estimated = false;
-    V3T imu_bw = V3T::Zero();
-    V3T imu_ba = V3T::Zero();
     V3T vel_ = V3T::Zero();
 
     friend class MyVins;
@@ -285,7 +288,7 @@ public:
         }
         double avg_plx = parallax / count;
         // std::cout << avg_plx << std::endl;
-        if (avg_plx < param.PARALLAX_THREASHOLD && count_not_keyframe < param.NOKEYFRAME_THREASHOLD){
+        if (avg_plx < param.PARALLAX_THREASHOLD && count_not_keyframe < param.NOKEYFRAME_THREASHOLD && count > 75){
             count_not_keyframe ++;
             return false;
         }else{
@@ -293,6 +296,7 @@ public:
             return true;
         }
     }
+    V4T& getCameraMat(){return camera_mat;}
 
 private:
     std::vector<int> dyn_map;

@@ -4,15 +4,16 @@ import site
 from glob import glob
 
 package_name = 'my_vins_frontend'
+# packages=find_packages(include=[package_name, package_name+'.*'])
 
-packages=find_packages()
+# print('=================================',packages, submodules)
 # print(f"Packages found: {', '.join(packages)}")
 # print(f"{packages}")
 
 setup(
     name=package_name,
     version='0.0.0',
-    packages=find_packages(include=[package_name, package_name+'.*']),
+    packages=find_packages(include=[package_name, package_name + '.*']),
     data_files=[
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),

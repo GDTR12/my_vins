@@ -27,7 +27,11 @@ public:
 
     bool solvePnP(std::vector<std::reference_wrapper<PointObservation>>& Observation, std::vector<std::reference_wrapper<PointFeature>>& feas, M4T& T_0toi);
 
+    bool solvePnPNew(std::vector<PointObservation*>& observe, std::vector<PointFeature*>& feas, M4T& T_ito0);
+
     bool initStructure();
+
+    bool initStructureNew();
 
     void getMatches(uint32_t idx_prev,
                     uint32_t idx_back,

@@ -10,7 +10,10 @@ public:
     int WINDOW_SIZE = 20;
     float PARALLAX_THREASHOLD = 10.1;
     int NOKEYFRAME_THREASHOLD = 10;
+    int NUM_INIT = 20;
     int NUM_ITERATIONS = 5;
+    Eigen::Matrix3d camera_mat;
+    Eigen::Vector4d distort_coeffs;
 
     static MyVinsParamServer& getInstance()
     {
